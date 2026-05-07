@@ -1,15 +1,8 @@
 {
   "watch": ["src"],
-  "ext": "js,json",
-  "ignore": [
-    "src/**/*.test.js",
-    "src/**/*.spec.js",
-    "node_modules",
-    "uploads",
-    "logs"
-  ],
-  "exec": "node src/app.js",
-  "env": {
-    "NODE_ENV": "development"
-  }
+  "ext": "ts,js,json",
+  "ignore": ["dist", "node_modules", "prisma/migrations"],
+  "exec": "tsx src/server.ts",
+  "delay": 200
 }
+

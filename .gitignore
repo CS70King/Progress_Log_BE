@@ -6,10 +6,13 @@ yarn-error.log*
 
 # Environment variables
 .env
+.env.*
+!.env.example
 .env.local
 .env.development.local
-.env.test.local
-.env.production.local
+.env.development
+.env.staging
+.env.production
 
 # Logs
 logs/
@@ -102,3 +105,13 @@ Thumbs.db
 # Build output
 dist/
 build/
+
+# Keys / secrets
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*service-account*.json

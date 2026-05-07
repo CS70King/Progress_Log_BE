@@ -1,192 +1,212 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  WORKER   @map("worker")
+  REVIEWER @map("reviewer")
+
+  @@map("user_role")
+}
+
+enum ProjectType {
+  GENERIC      @map("generic")
+  CONSTRUCTION @map("construction")
+  SERVICE      @map("service")
+
+  @@map("project_type")
+}
+
+enum ProjectMemberRole {
+  OWNER    @map("owner")
+  REVIEWER @map("reviewer")
+
+  @@map("project_member_role")
+}
+
+enum ProjectState {
+  ACTIVE    @map("active")
+  COMPLETED @map("completed")
+  ABANDONED @map("abandoned")
+
+  @@map("project_state")
+}
+
+enum MilestoneStatus {
+  DRAFT          @map("draft")
+  SUBMITTED      @map("submitted")
+  APPROVED       @map("approved")
+  NEEDS_REVISION @map("needs_revision")
+  DISAPPROVED    @map("disapproved")
+
+  @@map("milestone_status")
+}
+
+enum ReviewDecision {
+  APPROVED       @map("approved")
+  NEEDS_REVISION @map("needs_revision")
+
+  @@map("review_decision")
+}
+
+enum EvidenceType {
+  PHOTO    @map("photo")
+  VIDEO    @map("video")
+  DOCUMENT @map("document")
+  RECEIPT  @map("receipt")
+  OTHER    @map("other")
+
+  @@map("evidence_type")
+}
+
+enum ShareResourceType {
+  PROJECT  @map("project")
+  SNAPSHOT @map("snapshot")
+
+  @@map("share_resource_type")
 }
 
 model User {
-  id        String   @id @default(uuid())
-  name      String
-  phone     String   @unique
-  country   String   // "ghana" | "usa"
-  role      UserRole // "worker" | "reviewer"
-  company   String?
-  pinHash   String   @map("pin_hash")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(uuid()) @db.Uuid
+  role         UserRole
+  name         String
+  phone        String   @unique
+  country      String
+  company      String?
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  // Relations
-  ownedProjects    Project[]     @relation("ProjectOwner")
-  invitedProjects Project[]     @relation("ProjectReviewer")
-  createdMilestones Milestone[] @relation("MilestoneCreator")
-  reviewedMilestones Milestone[] @relation("MilestoneReviewer")
-  createdSnapshots Snapshot[]   @relation("SnapshotCreator")
-  sessions         Session[]
-  notifications    Notification[]
+  ownedProjects      Project[]         @relation("ProjectOwner")
+  projectMemberships ProjectMember[]
+  createdMilestones  Milestone[]       @relation("MilestoneCreator")
+  milestoneReviews   MilestoneReview[] @relation("MilestoneReviewer")
+  uploadedEvidence   EvidenceItem[]    @relation("EvidenceUploader")
+  createdSnapshots   Snapshot[]        @relation("SnapshotCreator")
+  createdShareLinks  ShareLink[]       @relation("ShareLinkCreator")
 
   @@map("users")
 }
 
-model Session {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  token     String   @unique
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("sessions")
-}
-
 model Project {
-  id                String        @id @default(uuid())
-  ownerId           String        @map("owner_id")
-  title             String
-  description       String
-  projectType       ProjectType   @map("project_type")
-  status            ProjectStatus @default(ACTIVE)
-  shareToken        String?       @unique @map("share_token")
-  invitedReviewerIds String[]     @map("invited_reviewer_ids")
-  createdAt         DateTime      @default(now()) @map("created_at")
-  updatedAt         DateTime      @updatedAt @map("updated_at")
-  completedAt       DateTime?     @map("completed_at")
+  id          String      @id @default(uuid()) @db.Uuid
+  ownerId     String      @map("owner_id") @db.Uuid
+  title       String
+  description String?
+  projectType ProjectType @map("project_type")
+  state       ProjectState @default(ACTIVE)
+  dedupeKey   String?     @unique @map("dedupe_key")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  // Relations
-  owner      User        @relation("ProjectOwner", fields: [ownerId], references: [id])
-  reviewers  User[]      @relation("ProjectReviewer")
+  owner      User            @relation("ProjectOwner", fields: [ownerId], references: [id])
+  members    ProjectMember[]
   milestones Milestone[]
+  evidence   EvidenceItem[]
   snapshots  Snapshot[]
 
   @@map("projects")
 }
 
+model ProjectMember {
+  id        String            @id @default(uuid()) @db.Uuid
+  projectId String            @map("project_id") @db.Uuid
+  userId    String            @map("user_id") @db.Uuid
+  role      ProjectMemberRole
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
 model Milestone {
-  id           String        @id @default(uuid())
-  projectId    String        @map("project_id")
-  createdBy    String        @map("created_by")
+  id           String          @id @default(uuid()) @db.Uuid
+  projectId    String          @map("project_id") @db.Uuid
+  createdBy    String          @map("created_by") @db.Uuid
   title        String
   description  String
-  activityDate DateTime      @map("activity_date")
+  activityDate DateTime        @map("activity_date") @db.Date
   status       MilestoneStatus @default(DRAFT)
-  evidenceIds  String[]      @map("evidence_ids")
-  submittedAt  DateTime?     @map("submitted_at")
-  reviewedBy   String?       @map("reviewed_by")
-  reviewedAt   DateTime?     @map("reviewed_at")
-  reviewerNote String?       @map("reviewer_note")
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  submittedAt  DateTime?       @map("submitted_at") @db.Timestamptz(6)
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  // Relations
-  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  creator  User     @relation("MilestoneCreator", fields: [createdBy], references: [id])
-  reviewer User?    @relation("MilestoneReviewer", fields: [reviewedBy], references: [id])
-  evidence Evidence[]
+  project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator       User             @relation("MilestoneCreator", fields: [createdBy], references: [id])
+  review        MilestoneReview?
+  evidenceItems EvidenceItem[]
 
   @@map("milestones")
 }
 
-model Evidence {
-  id           String       @id @default(uuid())
-  projectId    String       @map("project_id")
-  milestoneId  String       @map("milestone_id")
-  type         EvidenceType
-  filename     String
-  mimeType     String       @map("mime_type")
-  sizeBytes    Int          @map("size_bytes")
-  downloadUrl  String       @map("download_url")
-  thumbnailUrl String?      @map("thumbnail_url")
-  note         String?
-  createdAt    DateTime     @default(now()) @map("created_at")
+model MilestoneReview {
+  id          String         @id @default(uuid()) @db.Uuid
+  milestoneId String         @unique @map("milestone_id") @db.Uuid
+  reviewerId  String         @map("reviewer_id") @db.Uuid
+  decision    ReviewDecision
+  note        String?
+  reviewedAt  DateTime       @default(now()) @map("reviewed_at") @db.Timestamptz(6)
 
-  // Relations
   milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  reviewer  User      @relation("MilestoneReviewer", fields: [reviewerId], references: [id])
 
-  @@map("evidence")
+  @@map("milestone_reviews")
+}
+
+model EvidenceItem {
+  id               String       @id @default(uuid()) @db.Uuid
+  projectId        String       @map("project_id") @db.Uuid
+  milestoneId      String       @map("milestone_id") @db.Uuid
+  uploadedBy       String       @map("uploaded_by") @db.Uuid
+  evidenceType     EvidenceType @map("evidence_type")
+  filePath         String       @map("file_path")
+  originalFilename String       @map("original_filename")
+  contentType      String       @map("content_type")
+  sizeBytes        BigInt       @map("size_bytes")
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  uploader  User      @relation("EvidenceUploader", fields: [uploadedBy], references: [id])
+
+  @@map("evidence_items")
 }
 
 model Snapshot {
-  id                  String   @id @default(uuid())
-  projectId           String   @map("project_id")
-  createdBy           String   @map("created_by")
-  title               String
-  milestoneIdsIncluded String[] @map("milestone_ids_included")
-  shareToken          String   @unique @map("share_token")
-  immutablePayload    Json     @map("immutable_payload")
-  createdAt           DateTime @default(now()) @map("created_at")
+  id               String    @id @default(uuid()) @db.Uuid
+  projectId        String    @map("project_id") @db.Uuid
+  createdBy        String    @map("created_by") @db.Uuid
+  title            String
+  fromDate         DateTime? @map("from_date") @db.Date
+  toDate           DateTime? @map("to_date") @db.Date
+  milestoneIds     Json      @map("milestone_ids")
+  immutablePayload Json      @map("immutable_payload")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  // Relations
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   creator User    @relation("SnapshotCreator", fields: [createdBy], references: [id])
 
   @@map("snapshots")
 }
 
-model Notification {
-  id                String           @id @default(uuid())
-  userId            String           @map("user_id")
-  type              NotificationType
-  title             String
-  message           String
-  relatedEntityType RelatedEntity?   @map("related_entity_type")
-  relatedEntityId   String?          @map("related_entity_id")
-  read              Boolean          @default(false)
-  createdAt         DateTime         @default(now()) @map("created_at")
+model ShareLink {
+  id           String            @id @default(uuid()) @db.Uuid
+  token        String            @unique
+  resourceType ShareResourceType @map("resource_type")
+  resourceId   String            @map("resource_id") @db.Uuid
+  createdBy    String            @map("created_by") @db.Uuid
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt    DateTime?         @map("revoked_at") @db.Timestamptz(6)
+  expiresAt    DateTime?         @map("expires_at") @db.Timestamptz(6)
 
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  creator User @relation("ShareLinkCreator", fields: [createdBy], references: [id])
 
-  @@map("notifications")
-}
-
-// Enums
-enum UserRole {
-  WORKER
-  REVIEWER
-}
-
-enum ProjectType {
-  GENERIC
-  CONSTRUCTION
-  SERVICE
-}
-
-enum ProjectStatus {
-  ACTIVE
-  COMPLETED
-  ABANDONED
-}
-
-enum MilestoneStatus {
-  DRAFT
-  SUBMITTED
-  APPROVED
-  DISAPPROVED
-}
-
-enum EvidenceType {
-  PHOTO
-  VIDEO
-  DOCUMENT
-  RECEIPT
-  OTHER
-}
-
-enum NotificationType {
-  MILESTONE_SUBMITTED
-  MILESTONE_REVIEWED
-  REVIEWER_INVITED
-  PROJECT_SHARED
-}
-
-enum RelatedEntity {
-  PROJECT
-  MILESTONE
-  SNAPSHOT
+  @@map("share_links")
 }

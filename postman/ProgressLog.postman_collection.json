@@ -1,0 +1,340 @@
+{
+  "info": {
+    "name": "Progress Log Backend",
+    "_postman_id": "8bfb6347-4be4-40c3-b3f2-1f615246fd8d",
+    "description": "Core Progress Log MVP endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "workerToken", "value": "" },
+    { "key": "reviewerToken", "value": "" },
+    { "key": "projectId", "value": "" },
+    { "key": "milestoneId", "value": "" },
+    { "key": "evidenceId", "value": "" },
+    { "key": "snapshotId", "value": "" },
+    { "key": "shareToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup Worker",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/signup",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Worker One\",\n  \"phone\": \"+15555550100\",\n  \"country\": \"United States\",\n  \"role\": \"worker\",\n  \"pin\": \"1234\",\n  \"company\": \"Build Co\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Signup Reviewer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/signup",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Reviewer One\",\n  \"phone\": \"+15555550200\",\n  \"country\": \"United States\",\n  \"role\": \"reviewer\",\n  \"pin\": \"1234\",\n  \"company\": \"Review Co\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login Worker",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+15555550100\",\n  \"pin\": \"1234\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login Reviewer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+15555550200\",\n  \"pin\": \"1234\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Projects",
+      "item": [
+        {
+          "name": "Create Project",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{workerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/projects",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Demo Project\",\n  \"description\": \"Postman flow\",\n  \"project_type\": \"construction\",\n  \"reviewer_phones\": [\"+15555550200\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "List Projects",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/projects"
+          }
+        },
+        {
+          "name": "Get Project",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/projects/{{projectId}}"
+          }
+        },
+        {
+          "name": "Invite Reviewer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{workerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/projects/{{projectId}}/invite-reviewer",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reviewer_phone\": \"+15555550201\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Milestones",
+      "item": [
+        {
+          "name": "Create Milestone",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{workerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/projects/{{projectId}}/milestones",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Foundation\",\n  \"description\": \"Foundation complete\",\n  \"activity_date\": \"2026-03-20\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List Project Milestones",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/projects/{{projectId}}/milestones"
+          }
+        },
+        {
+          "name": "Get Milestone",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/milestones/{{milestoneId}}"
+          }
+        },
+        {
+          "name": "Update Milestone",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{workerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/milestones/{{milestoneId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Foundation complete and photographed\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Submit Milestone",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/milestones/{{milestoneId}}/submit"
+          }
+        },
+        {
+          "name": "Review Milestone",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{reviewerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/milestones/{{milestoneId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approved\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Evidence",
+      "item": [
+        {
+          "name": "Upload Evidence",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/milestones/{{milestoneId}}/evidence",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "evidence_type", "value": "photo", "type": "text" },
+                { "key": "files", "type": "file", "src": [] }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Evidence",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/evidence/{{evidenceId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Snapshots",
+      "item": [
+        {
+          "name": "Create Snapshot",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{workerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/projects/{{projectId}}/snapshots",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Approved Snapshot\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List Project Snapshots",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/projects/{{projectId}}/snapshots"
+          }
+        },
+        {
+          "name": "Get Snapshot",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/snapshots/{{snapshotId}}"
+          }
+        },
+        {
+          "name": "Share Snapshot",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/snapshots/{{snapshotId}}/share"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dossiers",
+      "item": [
+        {
+          "name": "Project Dossier",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/projects/{{projectId}}/dossier"
+          }
+        },
+        {
+          "name": "Snapshot Dossier",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{workerToken}}" }],
+            "url": "{{baseUrl}}/snapshots/{{snapshotId}}/dossier"
+          }
+        },
+        {
+          "name": "Create Project Share",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{workerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/projects/{{projectId}}/share",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resource\": \"project\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Shared Dossier",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/share/{{shareToken}}/dossier"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health"
+          }
+        },
+        {
+          "name": "Database Health",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health/db"
+          }
+        }
+      ]
+    }
+  ]
+}
