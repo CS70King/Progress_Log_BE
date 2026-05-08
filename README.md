@@ -168,6 +168,13 @@ curl -X POST http://localhost:3000/milestones/<MILESTONE_ID>/review \
   -d '{"decision":"approved"}'
 ```
 
+View milestone:
+
+```bash
+curl -X GET http://localhost:3000/milestones/<MILESTONE_ID> \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
 Fetch dossier:
 
 ```bash

@@ -77,6 +77,14 @@ const formatProjectDetails = async (project: Awaited<ReturnType<typeof projectRe
   const base = presentProject(project);
 
   const reviewerCount = project.members.filter((m) => m.role === ProjectMemberRole.REVIEWER).length;
+  const reviewers = project.members
+    .filter((m) => m.role === ProjectMemberRole.REVIEWER)
+    .map((member) => ({
+      id: member.user.id,
+      name: member.user.name,
+      phone: member.user.phone,
+      company: member.user.company
+    }));
 
   const milestones = await milestoneRepository.listByProject(project.id);
   const milestonesWithEvidenceUrls = await Promise.all(
@@ -167,11 +175,13 @@ const formatProjectDetails = async (project: Awaited<ReturnType<typeof projectRe
   return {
     id: base.id,
     title: base.title,
+    description: base.description ?? null,
     type: base.project_type,
     state: base.state,
     created_at: base.created_at,
     updated_at: base.updated_at,
     reviewer_count: reviewerCount,
+    reviewers: reviewers,
     milestones: milestonesWithEvidenceUrls,
     snapshots: snapshots.map((snapshot) => presentSnapshot(snapshot))
   };
@@ -187,6 +197,13 @@ const formatProjectReviewerDetails = async (project: Awaited<ReturnType<typeof p
 
   const milestones = await milestoneRepository.listByProject(project.id);
   const visibleMilestones = milestones.filter((m) => m.status !== MilestoneStatus.DRAFT);
+
+  const worker = {
+    id: project.owner.id,
+    name: project.owner.name,
+    phone: project.owner.phone,
+    company: project.owner.company
+  };
 
   const milestonesWithEvidenceUrls = await Promise.all(
     visibleMilestones.map(async (milestone) => {
@@ -271,6 +288,7 @@ const formatProjectReviewerDetails = async (project: Awaited<ReturnType<typeof p
     state: base.state,
     created_at: base.created_at,
     updated_at: base.updated_at,
+    worker: worker,
     milestonesInfo,
     milestones: milestonesWithEvidenceUrls
   };

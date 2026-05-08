@@ -6,6 +6,9 @@ import { parseDateOnly } from '../utils/dates';
 import { logger } from '../utils/logger';
 import { accessService } from './accessService';
 import { UserRole } from '@prisma/client';
+import { env } from '../config/env';
+import { storage } from '../storage';
+import { fromEvidenceType } from '../utils/enums';
 
 const editableMilestoneStatuses: MilestoneStatus[] = [MilestoneStatus.DRAFT, MilestoneStatus.NEEDS_REVISION];
 
@@ -95,12 +98,57 @@ export const milestoneService = {
     const presented = presentMilestone(milestone);
     const status = role === UserRole.REVIEWER && presented.status === 'submitted' ? 'pending_review' : presented.status;
 
+    // Generate signed URLs for evidence items
+    const evidenceItems = await Promise.all(
+      milestone.evidenceItems.map(async (item) => {
+        const signed = await (async () => {
+          try {
+            return await storage.signEvidenceUrl(
+              env.SUPABASE_STORAGE_BUCKET,
+              item.filePath,
+              env.SIGNED_URL_TTL_SECONDS
+            );
+          } catch (error) {
+            logger.warn('milestone.get.service.evidence_sign_failed', {
+              milestoneId,
+              evidenceId: item.id,
+              filePath: item.filePath
+            });
+            return null;
+          }
+        })();
+
+        return {
+          id: item.id,
+          project_id: item.projectId,
+          milestone_id: item.milestoneId,
+          uploader: item.uploader
+            ? {
+                id: item.uploader.id,
+                name: item.uploader.name,
+                phone: item.uploader.phone,
+                country: item.uploader.country,
+                company: item.uploader.company
+              }
+            : null,
+          evidence_type: fromEvidenceType(item.evidenceType),
+          file_path: item.filePath,
+          original_filename: item.originalFilename,
+          content_type: item.contentType,
+          size_bytes: Number(item.sizeBytes),
+          created_at: item.createdAt.toISOString(),
+          signed_url: signed?.url ?? null,
+          signed_url_expires_at: signed?.expiresAt ?? null
+        };
+      })
+    );
+
     return {
       milestone: {
         ...presented,
         status
       },
-      evidence_items: milestone.evidenceItems.map((item) => presentEvidenceItem(item)),
+      evidence_items: evidenceItems,
       review: milestone.review ? presentMilestoneReview(milestone.review) : null
     };
   },
