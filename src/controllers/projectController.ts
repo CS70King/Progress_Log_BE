@@ -104,6 +104,18 @@ export const projectController = {
     return sendSuccess(res, 'Share link created successfully', result, 201);
   },
 
+  async revokeShareLink(req: Request, res: Response) {
+    const projectId = requiredParam(req.params.projectId, 'projectId');
+    const shareLinkId = requiredParam(req.params.shareLinkId, 'shareLinkId');
+    logger.info('share.project_revoke.controller.start', {
+      projectId,
+      shareLinkId,
+      userId: req.auth!.userId
+    });
+    const result = await shareService.revokeProjectShareLink(projectId, shareLinkId, req.auth!.userId);
+    return sendSuccess(res, 'Share link revoked successfully', result);
+  },
+
   async dossier(req: Request, res: Response) {
     const projectId = requiredParam(req.params.projectId, 'projectId');
     logger.info('dossier.project.controller.start', {

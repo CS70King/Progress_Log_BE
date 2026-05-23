@@ -23,8 +23,14 @@
     "db:migrate:development": "cross-env ENV_FILE=.env.development prisma migrate dev",
     "db:migrate:staging": "cross-env ENV_FILE=.env.staging prisma migrate deploy",
     "db:migrate:production": "cross-env ENV_FILE=.env.production prisma migrate deploy",
-    "db:seed": "tsx prisma/seed.ts",
-    "db:seed:development": "cross-env ENV_FILE=.env.development tsx prisma/seed.ts",
+    "db:seed": "cross-env ENV_FILE=.env.development tsx scripts/seedDatabase.ts",
+    "db:seed:development": "cross-env ENV_FILE=.env.development tsx scripts/seedDatabase.ts",
+    "db:seed:staging": "cross-env ENV_FILE=.env.staging tsx scripts/seedDatabase.ts",
+    "db:seed:production": "cross-env ENV_FILE=.env.production tsx scripts/seedDatabase.ts",
+    "db:seed:realistic": "cross-env ENV_FILE=.env.development tsx scripts/seedDatabase.ts",
+    "db:wipe": "cross-env ENV_FILE=.env.development tsx scripts/wipeDatabase.ts",
+    "db:wipe:staging": "cross-env ENV_FILE=.env.staging tsx scripts/wipeDatabase.ts",
+    "db:wipe:project": "cross-env ENV_FILE=.env.production tsx scripts/wipeProductionProject.ts",
     "test": "cross-env ENV_FILE=.env.development NODE_ENV=test STORAGE_DRIVER=mock tsx --test tests/**/*.test.ts"
   },
   "keywords": [
@@ -39,6 +45,7 @@
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@supabase/supabase-js": "^2.49.8",
+    "axios": "^1.16.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
@@ -47,6 +54,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "pg": "^8.20.0",
+    "sharp": "^0.34.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {

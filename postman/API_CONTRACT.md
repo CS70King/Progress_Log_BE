@@ -111,14 +111,14 @@ Body:
   "country": "Ghana",
   "company": "Build Co",
   "role": "worker",
-  "pin": "1234"
+  "password": "WorkerPass123!"
 }
 ```
 
 Notes:
 
 - `company` is optional.
-- `pin` must be exactly 4 digits.
+- `password` must be 10-128 characters and include at least one letter and one number.
 
 Response `data`:
 
@@ -144,7 +144,7 @@ Body:
 ```json
 {
   "phone": "+15555550101",
-  "pin": "1234"
+  "password": "WorkerPass123!"
 }
 ```
 
@@ -257,7 +257,12 @@ Milestone items include:
 
 - `id`, `title`, `description`, `activity_date`, `state`, timestamps
 - `review` (decision + note + reviewer) when present
-- `evidence[]` with `signed_url` fields (may be `null` if object missing)
+- `evidence[]` with enhanced fields:
+  - `id`, `evidence_type`, `original_filename`, `content_type`, `size_bytes`
+  - `width`, `height` (image dimensions)
+  - `file_url`, `file_expires_at` (full-size signed URL)
+  - `thumbnail_path`, `thumbnail_size_bytes`, `thumbnail_width`, `thumbnail_height`
+  - `thumbnail_url`, `thumbnail_expires_at` (thumbnail signed URL)
 
 ### POST `/projects/:projectId/invite-reviewer`
 
@@ -330,7 +335,7 @@ Auth required (owner or member).
 Returns a "project dossier" report-style payload:
 
 - `header` (project + parties)
-- `milestones` (each includes evidence with signed `file_url`)
+- `milestones` (each includes evidence with signed `file_url` and thumbnail fields: `width`, `height`, `thumbnail_path`, `thumbnail_size_bytes`, `thumbnail_width`, `thumbnail_height`, `thumbnail_url`, `thumbnail_expires_at`)
 - `generated_at`
 
 ## Milestones
@@ -360,6 +365,7 @@ Returns an array of milestone objects:
 
 - `status` is role-mapped: reviewers see `pending_review` instead of `submitted`.
 - Each milestone includes `review` (if present) and `evidence` (metadata only; no signed URLs here unless returned by evidence upload).
+- Evidence items include thumbnail fields: `width`, `height`, `thumbnail_path`, `thumbnail_size_bytes`, `thumbnail_width`, `thumbnail_height`, `thumbnail_url`, `thumbnail_expires_at`.
 
 ### GET `/milestones/:milestoneId`
 
@@ -369,8 +375,39 @@ Response `data`:
 
 ```json
 {
-  "milestone": { /* milestone */ },
-  "evidence_items": [ /* evidence items */ ],
+  "milestone": { 
+    "id": "milestone-uuid",
+    "title": "Milestone Title",
+    "description": "Milestone description",
+    "activity_date": "2026-05-05",
+    "status": "approved",
+    "submitted_at": "2026-05-05T10:00:00.000Z",
+    "created_at": "2026-05-05T08:00:00.000Z",
+    "updated_at": "2026-05-05T09:30:00.000Z",
+    "creator": { /* creator object */ },
+    "review": { /* review object or null */ }
+  },
+  "evidence_items": [
+    {
+      "id": "evidence-uuid",
+      "evidence_type": "photo",
+      "original_filename": "photo.jpg",
+      "file_path": "projects/uuid/milestones/uuid/file.jpg",
+      "content_type": "image/jpeg",
+      "size_bytes": 1024000,
+      "width": 4000,
+      "height": 3000,
+      "created_at": "2026-05-05T09:00:00.000Z",
+      "signed_url": "https://supabase-url/signed-url",
+      "signed_url_expires_at": "2026-05-06T12:00:00.000Z",
+      "thumbnail_path": "projects/uuid/milestones/uuid/file-thumb.jpg",
+      "thumbnail_size_bytes": 15000,
+      "thumbnail_width": 300,
+      "thumbnail_height": 300,
+      "thumbnail_url": "https://supabase-url/thumb-signed-url",
+      "thumbnail_expires_at": "2026-05-06T12:00:00.000Z"
+    }
+  ],
   "review": { /* milestone review or null */ }
 }
 ```
@@ -473,9 +510,17 @@ Response `data` is grouped to avoid repetition:
       "original_filename": "file.jpg",
       "content_type": "image/jpeg",
       "size_bytes": 123,
+      "width": 4000,
+      "height": 3000,
       "created_at": "ISO",
       "signed_url": "http://... (time-limited)",
-      "signed_url_expires_at": "ISO"
+      "signed_url_expires_at": "ISO",
+      "thumbnail_path": "projects/<projectId>/milestones/<milestoneId>/<evidenceId>-<filename>-thumb.jpg",
+      "thumbnail_size_bytes": 15000,
+      "thumbnail_width": 300,
+      "thumbnail_height": 300,
+      "thumbnail_url": "http://... (thumbnail signed URL)",
+      "thumbnail_expires_at": "ISO"
     }
   ]
 }
@@ -485,6 +530,10 @@ Notes:
 
 - `file_path` is the stable storage key stored in the DB.
 - `signed_url` is generated on demand and expires; it may be `null` if the underlying storage object is missing.
+- `thumbnail_path` is the stable storage key for the thumbnail image.
+- `thumbnail_url` is generated on demand and expires; may be `null` if thumbnail is missing.
+- `width`/`height` are the original image dimensions (available for images only).
+- `thumbnail_width`/`thumbnail_height` are always 300x300 for generated thumbnails.
 
 ### DELETE `/evidence/:evidenceId`
 
@@ -626,8 +675,16 @@ Shape:
           "file_path": "projects/uuid/milestones/uuid/file.jpg",
           "content_type": "image/jpeg",
           "size_bytes": 1024000,
+          "width": 4000,
+          "height": 3000,
           "file_url": "https://supabase-url/signed-url",
           "file_expires_at": "2026-05-06T12:00:00.000Z",
+          "thumbnail_path": "projects/uuid/milestones/uuid/file-thumb.jpg",
+          "thumbnail_size_bytes": 15000,
+          "thumbnail_width": 300,
+          "thumbnail_height": 300,
+          "thumbnail_url": "https://supabase-url/thumb-signed-url",
+          "thumbnail_expires_at": "2026-05-06T12:00:00.000Z",
           "created_at": "2026-05-05T09:00:00.000Z"
         }
       ],
@@ -654,4 +711,3 @@ Token validity rules:
 
 - 404 if token not found
 - 410 if revoked or expired
-

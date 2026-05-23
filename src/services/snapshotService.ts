@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { ProjectState } from '@prisma/client';
 import { presentSnapshot } from '../models/presenters';
 import { milestoneRepository } from '../repositories/milestoneRepository';
 import { projectRepository } from '../repositories/projectRepository';
@@ -7,6 +8,15 @@ import { AppError } from '../utils/appError';
 import { logger } from '../utils/logger';
 import { accessService } from './accessService';
 import { dossierService } from './dossierService';
+
+const ensureProjectActive = (projectState: ProjectState) => {
+  if (projectState !== ProjectState.ACTIVE) {
+    logger.warn('snapshot.project_state.denied', {
+      projectState
+    });
+    throw new AppError(409, 'Snapshots cannot be created for completed or abandoned projects', 'CONFLICT');
+  }
+};
 
 export const snapshotService = {
   async createSnapshot(
@@ -21,7 +31,8 @@ export const snapshotService = {
       userId,
       title: input.title
     });
-    await accessService.assertProjectOwner(projectId, userId);
+    const projectAccess = await accessService.assertProjectOwner(projectId, userId);
+    ensureProjectActive(projectAccess.state);
 
     const project = await projectRepository.findById(projectId);
     if (!project) {

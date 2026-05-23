@@ -1,11 +1,20 @@
 import { UserRole } from '@prisma/client';
+import { env } from '../config/env';
 import { presentUser } from '../models/presenters';
 import { userRepository } from '../repositories/userRepository';
 import { AppError } from '../utils/appError';
 import { toUserRole } from '../utils/enums';
 import { signAccessToken } from '../utils/jwt';
 import { logger, maskPhone } from '../utils/logger';
-import { comparePin, hashPin } from '../utils/password';
+import { comparePassword, hashPassword } from '../utils/password';
+
+const buildAccountLockedError = (lockedUntil: Date) => {
+  return new AppError(
+    423,
+    `Too many failed login attempts. Try again after ${lockedUntil.toISOString()}`,
+    'ACCOUNT_LOCKED'
+  );
+};
 
 export const authService = {
   async signup(input: {
@@ -14,7 +23,7 @@ export const authService = {
     country: string;
     company?: string;
     role: 'worker' | 'reviewer';
-    pin: string;
+    password: string;
   }) {
     logger.info('auth.signup.service.start', {
       phone: maskPhone(input.phone),
@@ -35,7 +44,7 @@ export const authService = {
       country: input.country,
       company: input.company,
       role: toUserRole(input.role),
-      passwordHash: await hashPin(input.pin)
+      passwordHash: await hashPassword(input.password)
     });
 
     logger.info('auth.signup.service.created_user', {
@@ -48,12 +57,13 @@ export const authService = {
       user: presentUser(user),
       token: signAccessToken({
         userId: user.id,
-        role: user.role
+        role: user.role,
+        tokenVersion: user.tokenVersion
       })
     };
   },
 
-  async login(input: { phone: string; pin: string }) {
+  async login(input: { phone: string; password: string }) {
     logger.info('auth.login.service.start', {
       phone: maskPhone(input.phone)
     });
@@ -63,16 +73,46 @@ export const authService = {
       logger.warn('auth.login.service.user_not_found', {
         phone: maskPhone(input.phone)
       });
-      throw new AppError(401, 'Invalid phone or PIN', 'UNAUTHORIZED');
+      throw new AppError(401, 'Invalid phone or password', 'UNAUTHORIZED');
     }
 
-    const matches = await comparePin(input.pin, user.passwordHash);
-    if (!matches) {
-      logger.warn('auth.login.service.invalid_pin', {
+    if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
+      logger.warn('auth.login.service.account_locked', {
         userId: user.id,
-        phone: maskPhone(user.phone)
+        phone: maskPhone(user.phone),
+        lockedUntil: user.lockedUntil.toISOString()
       });
-      throw new AppError(401, 'Invalid phone or PIN', 'UNAUTHORIZED');
+      throw buildAccountLockedError(user.lockedUntil);
+    }
+
+    const matches = await comparePassword(input.password, user.passwordHash);
+    if (!matches) {
+      const nextFailedAttempts = user.failedLoginAttempts + 1;
+      const shouldLockAccount = nextFailedAttempts >= env.AUTH_ACCOUNT_LOCK_THRESHOLD;
+      const lockedUntil = shouldLockAccount ? new Date(Date.now() + env.AUTH_ACCOUNT_LOCK_DURATION_MS) : null;
+
+      await userRepository.recordFailedLoginAttempt(
+        user.id,
+        shouldLockAccount ? 0 : nextFailedAttempts,
+        lockedUntil
+      );
+
+      logger.warn('auth.login.service.invalid_password', {
+        userId: user.id,
+        phone: maskPhone(user.phone),
+        failedAttempts: shouldLockAccount ? env.AUTH_ACCOUNT_LOCK_THRESHOLD : nextFailedAttempts,
+        lockedUntil: lockedUntil?.toISOString() ?? null
+      });
+
+      if (lockedUntil) {
+        throw buildAccountLockedError(lockedUntil);
+      }
+
+      throw new AppError(401, 'Invalid phone or password', 'UNAUTHORIZED');
+    }
+
+    if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+      await userRepository.clearLoginProtection(user.id);
     }
 
     logger.info('auth.login.service.success', {
@@ -84,7 +124,8 @@ export const authService = {
       user: presentUser(user),
       token: signAccessToken({
         userId: user.id,
-        role: user.role
+        role: user.role,
+        tokenVersion: user.tokenVersion
       })
     };
   },

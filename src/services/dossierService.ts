@@ -15,6 +15,7 @@ import {
 import { logger } from '../utils/logger';
 import { accessService } from './accessService';
 
+// Type extension for stored evidence with thumbnails
 type StoredEvidence = {
   id: string;
   evidence_type: 'photo' | 'video' | 'document' | 'receipt' | 'other';
@@ -22,6 +23,15 @@ type StoredEvidence = {
   content_type: string;
   size_bytes: number;
   file_path: string;
+};
+
+type StoredEvidenceWithThumbnails = StoredEvidence & {
+  width?: number;
+  height?: number;
+  thumbnail_path?: string;
+  thumbnail_size_bytes?: number;
+  thumbnail_width?: number;
+  thumbnail_height?: number;
 };
 
 type StoredMilestone = {
@@ -37,7 +47,7 @@ type StoredMilestone = {
     reviewer: { id: string; name: string };
     reviewed_at: string;
   } | null;
-  evidence: StoredEvidence[];
+  evidence: StoredEvidenceWithThumbnails[];
   created_at: string;
   updated_at: string;
 };
@@ -85,6 +95,35 @@ export type StoredSnapshotDossier = {
   generated_at: string;
 };
 
+/**
+ * Simple in-memory cache for signed URLs to reduce overhead during dossier generation.
+ * Key is filePath, value is the signed URL and expiry.
+ */
+const signedUrlCache = new Map<string, { url: string; expiresAt: Date }>();
+
+const getCachedSignedUrl = async (filePath: string) => {
+  const cached = signedUrlCache.get(filePath);
+  // Return cached if it exists and won't expire in the next 5 minutes
+  if (cached && cached.expiresAt.getTime() > Date.now() + 5 * 60 * 1000) {
+    return cached;
+  }
+
+  const signed = await storage.signEvidenceUrl(env.SUPABASE_STORAGE_BUCKET, filePath, env.SIGNED_URL_TTL_SECONDS);
+  
+  signedUrlCache.set(filePath, signed);
+  return signed;
+};
+
+const sortMilestonesByDate = (milestones: StoredMilestone[]) => {
+  return [...milestones].sort((a, b) => {
+    // Most recent first: activity_date (YYYY-MM-DD) desc, then created_at desc.
+    const aDate = a.activity_date ?? '';
+    const bDate = b.activity_date ?? '';
+    if (aDate !== bDate) return aDate < bDate ? 1 : -1;
+    return a.created_at < b.created_at ? 1 : -1;
+  });
+};
+
 type ProjectWithMembers = NonNullable<Awaited<ReturnType<typeof projectRepository.findById>>>;
 type MilestoneList = Awaited<ReturnType<typeof milestoneRepository.listByProject>>;
 
@@ -107,13 +146,19 @@ const buildMilestones = (milestones: MilestoneList): StoredMilestone[] => {
           reviewed_at: milestone.review.reviewedAt.toISOString()
         }
       : null,
-    evidence: milestone.evidenceItems.map((item) => ({
+    evidence: milestone.evidenceItems.map((item): StoredEvidenceWithThumbnails => ({
       id: item.id,
       evidence_type: fromEvidenceType(item.evidenceType),
       original_filename: item.originalFilename,
       content_type: item.contentType,
       size_bytes: Number(item.sizeBytes),
-      file_path: item.filePath
+      file_path: item.filePath,
+      width: (item as any).width || undefined,
+      height: (item as any).height || undefined,
+      thumbnail_path: (item as any).thumbnailPath || undefined,
+      thumbnail_size_bytes: (item as any).thumbnailSize ? Number((item as any).thumbnailSize) : undefined,
+      thumbnail_width: (item as any).thumbnailWidth || undefined,
+      thumbnail_height: (item as any).thumbnailHeight || undefined
     })),
     created_at: milestone.createdAt.toISOString(),
     updated_at: milestone.updatedAt.toISOString()
@@ -148,23 +193,36 @@ const signMilestones = async (milestones: StoredMilestone[]) => {
       submitted_at: milestone.submitted_at,
       review: milestone.review,
       evidence: await Promise.all(
-        milestone.evidence.map(async (evidence) => {
-          const signed = await (async () => {
-            try {
-              return await storage.signEvidenceUrl(
-                env.SUPABASE_STORAGE_BUCKET,
-                evidence.file_path,
-                env.SIGNED_URL_TTL_SECONDS
-              );
-            } catch (_error) {
-              logger.warn('dossier.sign_milestones.evidence_sign_failed', {
-                milestoneId: milestone.id,
-                evidenceId: evidence.id,
-                filePath: evidence.file_path
-              });
-              return null;
-            }
-          })();
+        milestone.evidence.map(async (evidence: StoredEvidenceWithThumbnails) => {
+          const [signed, thumbnailSigned] = await Promise.all([
+            (async () => {
+              try {
+                return await getCachedSignedUrl(evidence.file_path);
+              } catch (_error) {
+                logger.warn('dossier.sign_milestones.evidence_sign_failed', {
+                  milestoneId: milestone.id,
+                  evidenceId: evidence.id,
+                  filePath: evidence.file_path
+                });
+                return null;
+              }
+            })(),
+            (async () => {
+              try {
+                if (evidence.thumbnail_path) {
+                  return await getCachedSignedUrl(evidence.thumbnail_path);
+                }
+                return null;
+              } catch (_error) {
+                logger.warn('dossier.sign_milestones.thumbnail_sign_failed', {
+                  milestoneId: milestone.id,
+                  evidenceId: evidence.id,
+                  thumbnailPath: evidence.thumbnail_path
+                });
+                return null;
+              }
+            })()
+          ]);
 
           return {
             id: evidence.id,
@@ -172,8 +230,15 @@ const signMilestones = async (milestones: StoredMilestone[]) => {
             original_filename: evidence.original_filename,
             content_type: evidence.content_type,
             size_bytes: evidence.size_bytes,
+            width: evidence.width,
+            height: evidence.height,
             file_url: signed?.url ?? null,
-            file_expires_at: signed?.expiresAt ?? null
+            file_expires_at: signed?.expiresAt ?? null,
+            thumbnail_url: thumbnailSigned?.url ?? null,
+            thumbnail_expires_at: thumbnailSigned?.expiresAt ?? null,
+            thumbnail_size_bytes: evidence.thumbnail_size_bytes,
+            thumbnail_width: evidence.thumbnail_width,
+            thumbnail_height: evidence.thumbnail_height
           };
         })
       ),
@@ -314,14 +379,6 @@ export const dossierService = {
     const snapshot = await accessService.assertSnapshotAccess(snapshotId, userId);
     const payload = snapshot.immutablePayload as StoredSnapshotDossier;
 
-    const sortedMilestones = [...payload.milestones].sort((a, b) => {
-      // Most recent first: activity_date (YYYY-MM-DD) desc, then created_at desc.
-      const aDate = a.activity_date ?? '';
-      const bDate = b.activity_date ?? '';
-      if (aDate !== bDate) return aDate < bDate ? 1 : -1;
-      return a.created_at < b.created_at ? 1 : -1;
-    });
-
     return {
       project: {
         id: payload.header.project.id,
@@ -343,7 +400,7 @@ export const dossierService = {
         name: reviewer.name,
         phone: reviewer.phone
       })),
-      milestones: await signMilestones(sortedMilestones),
+      milestones: await signMilestones(sortMilestonesByDate(payload.milestones)),
       generated_at: new Date().toISOString()
     };
   },
@@ -361,12 +418,6 @@ export const dossierService = {
     }
 
     const payload = snapshot.immutablePayload as StoredSnapshotDossier;
-    const sortedMilestones = [...payload.milestones].sort((a, b) => {
-      const aDate = a.activity_date ?? '';
-      const bDate = b.activity_date ?? '';
-      if (aDate !== bDate) return aDate < bDate ? 1 : -1;
-      return a.created_at < b.created_at ? 1 : -1;
-    });
 
     return {
       project: {
@@ -389,7 +440,7 @@ export const dossierService = {
         name: reviewer.name,
         phone: reviewer.phone
       })),
-      milestones: await signMilestones(sortedMilestones),
+      milestones: await signMilestones(sortMilestonesByDate(payload.milestones)),
       generated_at: new Date().toISOString()
     };
   }

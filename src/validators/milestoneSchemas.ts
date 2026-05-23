@@ -7,18 +7,27 @@ export const milestoneIdParamSchema = z.object({
 });
 
 export const createMilestoneSchema = z.object({
-  title: z.string().min(1),
-  description: z.string().min(1),
+  title: z.string().trim().min(1, 'Milestone title is required').max(160, 'Milestone title must be at most 160 characters'),
+  description: z
+    .string()
+    .trim()
+    .min(1, 'Milestone description is required')
+    .max(4000, 'Milestone description must be at most 4000 characters'),
   activity_date: dateOnly,
-  tags: z.array(z.string()).optional()
+  tags: z.array(z.string().trim().min(1).max(40)).max(20).optional()
 });
 
 export const updateMilestoneSchema = z
   .object({
-    title: z.string().min(1).optional(),
-    description: z.string().min(1).optional(),
+    title: z.string().trim().min(1).max(160, 'Milestone title must be at most 160 characters').optional(),
+    description: z
+      .string()
+      .trim()
+      .min(1)
+      .max(4000, 'Milestone description must be at most 4000 characters')
+      .optional(),
     activity_date: dateOnly.optional(),
-    tags: z.array(z.string()).optional()
+    tags: z.array(z.string().trim().min(1).max(40)).max(20).optional()
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: 'At least one field is required'

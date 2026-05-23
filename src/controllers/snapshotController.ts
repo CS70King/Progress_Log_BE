@@ -27,6 +27,18 @@ export const snapshotController = {
     return sendSuccess(res, 'Snapshot share link created successfully', result, 201);
   },
 
+  async revokeShareLink(req: Request, res: Response) {
+    const snapshotId = requiredParam(req.params.snapshotId, 'snapshotId');
+    const shareLinkId = requiredParam(req.params.shareLinkId, 'shareLinkId');
+    logger.info('share.snapshot_revoke.controller.start', {
+      snapshotId,
+      shareLinkId,
+      userId: req.auth!.userId
+    });
+    const result = await shareService.revokeSnapshotShareLink(snapshotId, shareLinkId, req.auth!.userId);
+    return sendSuccess(res, 'Snapshot share link revoked successfully', result);
+  },
+
   async dossier(req: Request, res: Response) {
     const snapshotId = requiredParam(req.params.snapshotId, 'snapshotId');
     logger.info('dossier.snapshot.controller.start', {

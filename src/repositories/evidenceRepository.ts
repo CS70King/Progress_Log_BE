@@ -21,6 +21,27 @@ export const evidenceRepository = {
     });
   },
 
+  updateImageMetadata(
+    evidenceId: string,
+    metadata: {
+    width?: number;
+    height?: number;
+    thumbnailPath?: string;
+    thumbnailSize?: bigint;
+    thumbnailWidth?: number;
+    thumbnailHeight?: number;
+    }
+  ) {
+    return prisma.evidenceItem.update({
+      where: { id: evidenceId },
+      data: metadata,
+      include: {
+        milestone: true,
+        uploader: true
+      }
+    });
+  },
+
   findById(evidenceId: string) {
     return prisma.evidenceItem.findUnique({
       where: { id: evidenceId },

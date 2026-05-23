@@ -1,9 +1,10 @@
 import { RequestHandler } from 'express';
 import { UserRole } from '@prisma/client';
+import { userRepository } from '../repositories/userRepository';
 import { verifyAccessToken } from '../utils/jwt';
 import { AppError } from '../utils/appError';
 
-export const requireAuth: RequestHandler = (req, _res, next) => {
+export const requireAuth: RequestHandler = async (req, _res, next) => {
   const header = req.headers.authorization;
 
   if (!header || !header.startsWith('Bearer ')) {
@@ -14,12 +15,22 @@ export const requireAuth: RequestHandler = (req, _res, next) => {
 
   try {
     const payload = verifyAccessToken(token);
+    const user = await userRepository.findById(payload.userId);
+    if (!user || user.tokenVersion !== payload.tokenVersion) {
+      throw new AppError(401, 'Invalid or expired token', 'UNAUTHORIZED');
+    }
+
     req.auth = {
-      userId: payload.userId,
-      role: payload.role
+      userId: user.id,
+      role: user.role,
+      tokenVersion: user.tokenVersion
     };
     return next();
-  } catch {
+  } catch (error) {
+    if (error instanceof AppError) {
+      return next(error);
+    }
+
     return next(new AppError(401, 'Invalid or expired token', 'UNAUTHORIZED'));
   }
 };

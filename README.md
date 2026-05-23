@@ -33,12 +33,15 @@ Progress Log is a milestone-based backend for recording project progress, upload
 - `GET /projects/:projectId/snapshots`
 - `GET /snapshots/:snapshotId`
 - `POST /projects/:projectId/share`
+- `DELETE /projects/:projectId/share/:shareLinkId`
 - `POST /snapshots/:snapshotId/share`
+- `DELETE /snapshots/:snapshotId/share/:shareLinkId`
 - `GET /projects/:projectId/dossier`
 - `GET /snapshots/:snapshotId/dossier`
 - `GET /share/:token/dossier`
 - `GET /health`
 - `GET /health/db`
+- `GET /health/ready`
 
 ## Environment
 
@@ -63,16 +66,39 @@ NODE_ENV=development
 PORT=3000
 DATABASE_URL=postgresql://postgres:postgres@localhost:54322/postgres
 JWT_SECRET=local-dev-secret
-JWT_EXPIRES_IN=30d
-SUPABASE_URL=http://localhost:54321
+JWT_EXPIRES_IN=12h
+SUPABASE_URL=http://localhost:54320
 SUPABASE_SERVICE_ROLE_KEY=your-local-service-role-key
 SUPABASE_STORAGE_BUCKET=progress-evidence
 SIGNED_URL_TTL_SECONDS=3600
 CORS_ORIGIN=http://localhost:5173
 STORAGE_DRIVER=supabase
+TRUST_PROXY=false
+AUTH_LOGIN_RATE_LIMIT_WINDOW_MS=900000
+AUTH_LOGIN_RATE_LIMIT_MAX=5
+AUTH_SIGNUP_RATE_LIMIT_WINDOW_MS=3600000
+AUTH_SIGNUP_RATE_LIMIT_MAX=10
+RATE_LIMIT_STORE=memory
+RATE_LIMIT_REDIS_URL=redis://username:password@redis-host:6379/0
+AUTH_ACCOUNT_LOCK_THRESHOLD=5
+AUTH_ACCOUNT_LOCK_DURATION_MS=900000
+UPLOAD_MAX_FILES=20
+UPLOAD_MAX_FILE_SIZE_MB=25
+UPLOAD_SCAN_MODE=off
+UPLOAD_SCAN_URL=https://scanner.example.com/scan
+PROJECT_SHARE_LINK_TTL_HOURS=168
+SNAPSHOT_SHARE_LINK_TTL_HOURS=72
 ```
 
 Use `STORAGE_DRIVER=mock` for tests or when you want to avoid real Supabase calls.
+
+Security defaults:
+
+- auth rate limiting is enabled on `/auth/signup` and `/auth/login`
+- accounts lock for 15 minutes after 5 failed password attempts
+- share links expire by default
+- file scanning can be enabled with `UPLOAD_SCAN_MODE=http`
+- Redis-backed rate limiting is available through `RATE_LIMIT_STORE=redis`
 
 ## Setup
 
@@ -106,12 +132,22 @@ Recommended bucket setup:
 
 ## Seed Data
 
-The seed creates:
+The canonical seed script is `scripts/seedDatabase.ts`.
 
-- One worker: `+15555550100` / `1234`
-- One reviewer: `+15555550200` / `1234`
-- One project with both users attached
-- Four milestones with mixed statuses
+Behavior by environment:
+
+- `development`: asks for confirmation, wipes the database, then seeds 10 projects
+- `staging`: asks for confirmation, wipes the database, then seeds 5 projects
+- `production`: asks for confirmation, does not wipe, then seeds 3 projects
+
+Commands:
+
+- `npm run db:seed`
+- `npm run db:seed:development`
+- `npm run db:seed:staging`
+- `npm run db:seed:production`
+
+Set `SKIP_CONFIRMATION=true` only for automation.
 
 ## Sample curl
 
@@ -120,7 +156,7 @@ Signup:
 ```bash
 curl -X POST http://localhost:3000/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{"name":"Worker One","phone":"+15555550100","country":"United States","role":"worker","pin":"1234"}'
+  -d '{"name":"Worker One","phone":"+15555550100","country":"United States","role":"worker","password":"WorkerPass123!"}'
 ```
 
 Login:
@@ -128,7 +164,7 @@ Login:
 ```bash
 curl -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"phone":"+15555550100","pin":"1234"}'
+  -d '{"phone":"+15555550100","password":"WorkerPass123!"}'
 ```
 
 Create project:
@@ -179,6 +215,13 @@ Fetch dossier:
 
 ```bash
 curl -X GET http://localhost:3000/projects/<PROJECT_ID>/dossier \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+Revoke a project share link:
+
+```bash
+curl -X DELETE http://localhost:3000/projects/<PROJECT_ID>/share/<SHARE_LINK_ID> \
   -H "Authorization: Bearer <TOKEN>"
 ```
 

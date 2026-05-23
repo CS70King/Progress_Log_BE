@@ -5,4 +5,5 @@ import { asyncHandler } from '../utils/asyncHandler';
 export const healthRouter = Router();
 
 healthRouter.get('/', asyncHandler(healthController.health));
+healthRouter.get('/ready', asyncHandler(healthController.readiness));
 healthRouter.get('/db', asyncHandler(healthController.database));

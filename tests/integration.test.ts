@@ -3,15 +3,21 @@ import test from 'node:test';
 import path from 'node:path';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
+import { Pool } from 'pg';
 import request from 'supertest';
 import { app } from '../src/app';
 import { env } from '../src/config/env';
 
-const adapter = new PrismaPg({
+const pool = new Pool({
   connectionString: env.DATABASE_URL
 });
 
-const prisma = new PrismaClient({ adapter });
+const prisma = new PrismaClient({
+  adapter: new PrismaPg(pool)
+});
+
+const workerPassword = 'WorkerPass123!';
+const reviewerPassword = 'ReviewerPass123!';
 
 const fixture = (name: string) => path.join(process.cwd(), 'tests', 'fixtures', name);
 
@@ -36,6 +42,7 @@ test.beforeEach(async () => {
 
 test.after(async () => {
   await prisma.$disconnect();
+  await pool.end();
 });
 
 test('supports the Progress Log MVP flow', async () => {
@@ -43,31 +50,47 @@ test('supports the Progress Log MVP flow', async () => {
     name: 'Worker One',
     phone: '+15555550100',
     role: 'worker',
-    pin: '1234',
+    password: workerPassword,
     country: 'United States',
     company: 'Build Co'
   });
 
   assert.equal(workerSignup.status, 201);
-  const workerToken = workerSignup.body.data.token as string;
+  const signupWorkerToken = workerSignup.body.data.token as string;
+
+  const workerLogin = await request(app).post('/auth/login').send({
+    phone: '+15555550100',
+    password: workerPassword
+  });
+
+  assert.equal(workerLogin.status, 200);
+  const workerToken = workerLogin.body.data.token as string;
 
   const reviewerSignup = await request(app).post('/auth/signup').send({
     name: 'Reviewer One',
     phone: '+15555550200',
     role: 'reviewer',
-    pin: '1234',
+    password: reviewerPassword,
     country: 'United States',
     company: 'Review Co'
   });
 
   assert.equal(reviewerSignup.status, 201);
-  const reviewerToken = reviewerSignup.body.data.token as string;
+  assert.ok(signupWorkerToken);
+
+  const reviewerLogin = await request(app).post('/auth/login').send({
+    phone: '+15555550200',
+    password: reviewerPassword
+  });
+
+  assert.equal(reviewerLogin.status, 200);
+  const reviewerToken = reviewerLogin.body.data.token as string;
 
   const secondReviewerSignup = await request(app).post('/auth/signup').send({
     name: 'Reviewer Two',
     phone: '+15555550201',
     role: 'reviewer',
-    pin: '1234',
+    password: reviewerPassword,
     country: 'United States',
     company: 'Review Co'
   });
@@ -85,8 +108,14 @@ test('supports the Progress Log MVP flow', async () => {
     });
 
   assert.equal(projectResponse.status, 201);
-  assert.equal(projectResponse.body.data.reviewers.length, 2);
   const projectId = projectResponse.body.data.id as string;
+
+  const projectDetailsResponse = await request(app)
+    .get(`/projects/${projectId}`)
+    .set('Authorization', `Bearer ${workerToken}`);
+
+  assert.equal(projectDetailsResponse.status, 200);
+  assert.equal(projectDetailsResponse.body.data.reviewers.length, 2);
 
   const duplicateProjectResponse = await request(app)
     .post('/projects')
@@ -116,11 +145,11 @@ test('supports the Progress Log MVP flow', async () => {
     .post(`/milestones/${milestoneId}/evidence`)
     .set('Authorization', `Bearer ${workerToken}`)
     .field('evidence_type', 'photo')
-    .attach('files', fixture('photo-1.jpg'))
-    .attach('files', fixture('photo-2.jpg'));
+    .attach('files', fixture('photo-1.png'))
+    .attach('files', fixture('photo-2.png'));
 
   assert.equal(uploadResponse.status, 201);
-  assert.equal(uploadResponse.body.data.length, 2);
+  assert.equal(uploadResponse.body.data.items.length, 2);
 
   const submitResponse = await request(app)
     .post(`/milestones/${milestoneId}/submit`)
@@ -169,7 +198,7 @@ test('supports the Progress Log MVP flow', async () => {
   const sharedDossierResponse = await request(app).get(`/share/${shareToken}/dossier`);
 
   assert.equal(sharedDossierResponse.status, 200);
-  assert.equal(sharedDossierResponse.body.data.header.type, 'snapshot');
+  assert.equal(sharedDossierResponse.body.data.snapshot.id, snapshotId);
   assert.equal(sharedDossierResponse.body.data.milestones[0].evidence.length, 2);
   assert.match(sharedDossierResponse.body.data.milestones[0].evidence[0].file_url, /mock-storage|supabase/i);
 });

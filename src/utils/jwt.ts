@@ -6,6 +6,7 @@ import { env } from '../config/env';
 type TokenPayload = {
   userId: string;
   role: UserRole;
+  tokenVersion: number;
 };
 
 export const signAccessToken = (payload: TokenPayload) => {

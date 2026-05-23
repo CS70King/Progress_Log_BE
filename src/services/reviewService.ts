@@ -1,10 +1,19 @@
-import { MilestoneStatus } from '@prisma/client';
+import { MilestoneStatus, ProjectState } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import { presentMilestone, presentMilestoneReview } from '../models/presenters';
 import { AppError } from '../utils/appError';
 import { toReviewDecision } from '../utils/enums';
 import { logger } from '../utils/logger';
 import { accessService } from './accessService';
+
+const ensureProjectActive = (projectState: ProjectState) => {
+  if (projectState !== ProjectState.ACTIVE) {
+    logger.warn('review.project_state.denied', {
+      projectState
+    });
+    throw new AppError(409, 'Milestones cannot be reviewed for completed or abandoned projects', 'CONFLICT');
+  }
+};
 
 export const reviewService = {
   async reviewMilestone(
@@ -22,6 +31,7 @@ export const reviewService = {
     });
     const milestone = await accessService.assertMilestoneAccess(milestoneId, userId);
     await accessService.assertProjectReviewer(milestone.projectId, userId);
+    ensureProjectActive(milestone.project.state);
 
     if (milestone.status !== MilestoneStatus.SUBMITTED) {
       logger.warn('review.create.service.invalid_status', {

@@ -6,9 +6,24 @@ export const shareLinkRepository = {
     return prisma.shareLink.create({ data });
   },
 
+  findById(id: string) {
+    return prisma.shareLink.findUnique({
+      where: { id }
+    });
+  },
+
   findByToken(token: string) {
     return prisma.shareLink.findUnique({
       where: { token }
+    });
+  },
+
+  revoke(id: string, revokedAt: Date) {
+    return prisma.shareLink.update({
+      where: { id },
+      data: {
+        revokedAt
+      }
     });
   }
 };

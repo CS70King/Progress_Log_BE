@@ -7,7 +7,7 @@ export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
-    seed: 'tsx prisma/seed.ts'
+    seed: 'cross-env ENV_FILE=.env.development tsx scripts/seedDatabase.ts'
   },
   datasource: {
     url: env('DATABASE_URL')

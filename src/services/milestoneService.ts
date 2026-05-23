@@ -1,4 +1,4 @@
-import { MilestoneStatus } from '@prisma/client';
+import { MilestoneStatus, ProjectState } from '@prisma/client';
 import { presentEvidenceItem, presentMilestone, presentMilestoneReview } from '../models/presenters';
 import { milestoneRepository } from '../repositories/milestoneRepository';
 import { AppError } from '../utils/appError';
@@ -21,6 +21,15 @@ const ensureMilestoneEditable = (status: MilestoneStatus) => {
   }
 };
 
+const ensureProjectActive = (projectState: ProjectState) => {
+  if (projectState !== ProjectState.ACTIVE) {
+    logger.warn('milestone.project_state.denied', {
+      projectState
+    });
+    throw new AppError(409, 'Milestones cannot be changed for completed or abandoned projects', 'CONFLICT');
+  }
+};
+
 export const milestoneService = {
   async createMilestone(
     projectId: string,
@@ -37,7 +46,8 @@ export const milestoneService = {
       userId,
       activityDate: input.activity_date
     });
-    await accessService.assertProjectOwner(projectId, userId);
+    const project = await accessService.assertProjectOwner(projectId, userId);
+    ensureProjectActive(project.state);
 
     const milestone = await milestoneRepository.create({
       project: {
@@ -169,6 +179,7 @@ export const milestoneService = {
       fields: Object.keys(input)
     });
     const milestone = await accessService.assertMilestoneOwner(milestoneId, userId);
+    ensureProjectActive(milestone.project.state);
     if (milestone.createdBy !== userId) {
       logger.warn('milestone.update.service.creator_check_denied', {
         milestoneId,
@@ -199,6 +210,7 @@ export const milestoneService = {
       userId
     });
     const milestone = await accessService.assertMilestoneOwner(milestoneId, userId);
+    ensureProjectActive(milestone.project.state);
     ensureMilestoneEditable(milestone.status);
 
     const updatedMilestone = await milestoneRepository.update(milestoneId, {

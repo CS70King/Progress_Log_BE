@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { MilestoneStatus } from '@prisma/client';
+import { MilestoneStatus, ProjectState } from '@prisma/client';
 import { env } from '../config/env';
 import { presentEvidenceItem } from '../models/presenters';
 import { evidenceRepository } from '../repositories/evidenceRepository';
@@ -7,9 +7,12 @@ import { prisma } from '../db/prisma';
 import { storage } from '../storage';
 import { AppError } from '../utils/appError';
 import { toEvidenceType } from '../utils/enums';
+import { assertUploadedFileAllowed } from '../utils/fileValidation';
 import { logger } from '../utils/logger';
 import { sanitizeFilename } from '../utils/strings';
 import { accessService } from './accessService';
+import { fileScanService } from './fileScanService';
+import { ImageService } from './imageService';
 
 const mutableEvidenceStatuses: MilestoneStatus[] = [MilestoneStatus.DRAFT, MilestoneStatus.NEEDS_REVISION];
 
@@ -23,6 +26,15 @@ const ensureEvidenceMutable = (status: MilestoneStatus) => {
       'Evidence can only be modified when the milestone is draft or needs_revision',
       'CONFLICT'
     );
+  }
+};
+
+const ensureProjectActive = (projectState: ProjectState) => {
+  if (projectState !== ProjectState.ACTIVE) {
+    logger.warn('evidence.project_state.denied', {
+      projectState
+    });
+    throw new AppError(409, 'Evidence cannot be changed for completed or abandoned projects', 'CONFLICT');
   }
 };
 
@@ -51,6 +63,7 @@ export const evidenceService = {
     }
 
     const milestone = await accessService.assertMilestoneOwner(milestoneId, userId);
+    ensureProjectActive(milestone.project.state);
     ensureEvidenceMutable(milestone.status);
 
     const MAX_EVIDENCE_PER_MILESTONE = 20;
@@ -73,58 +86,128 @@ export const evidenceService = {
     const items = [];
 
     for (const file of files) {
+      assertUploadedFileAllowed(file, input.evidence_type);
+      await fileScanService.assertFileIsClean(file, input.evidence_type);
+
       const id = crypto.randomUUID();
       const filePath = `projects/${milestone.projectId}/milestones/${milestone.id}/${id}-${sanitizeFilename(
         file.originalname
       )}`;
 
-      const record = await evidenceRepository.create({
-        id,
-        project: {
-          connect: {
-            id: milestone.projectId
-          }
-        },
-        milestone: {
-          connect: {
-            id: milestone.id
-          }
-        },
-        uploader: {
-          connect: {
-            id: userId
-          }
-        },
-        evidenceType: toEvidenceType(input.evidence_type),
-        filePath,
-        originalFilename: file.originalname,
-        contentType: file.mimetype,
-        sizeBytes: BigInt(file.size)
-      });
+      let width: number | undefined;
+      let height: number | undefined;
+      let thumbnailPath: string | undefined;
+      let thumbnailSize: bigint | undefined;
+      let thumbnailWidth: number | undefined;
+      let thumbnailHeight: number | undefined;
+      let thumbnailBuffer: Buffer | undefined;
+      let record: Awaited<ReturnType<typeof evidenceRepository.create>> | null = null;
 
-      logger.info('evidence.upload.service.record_created', {
-        evidenceId: record.id,
-        milestoneId: milestone.id,
-        projectId: milestone.projectId,
-        originalFilename: file.originalname,
-        contentType: file.mimetype,
-        sizeBytes: file.size
-      });
+      if (file.mimetype.startsWith('image/')) {
+        try {
+          const isImage = await ImageService.isImage(file.buffer);
+          if (isImage) {
+            const metadata = await ImageService.extractMetadata(file.buffer);
+            width = metadata.width;
+            height = metadata.height;
+
+            const thumbnail = await ImageService.generateThumbnail(file.buffer);
+            thumbnailPath = ImageService.getThumbnailPath(filePath);
+            thumbnailSize = BigInt(thumbnail.size);
+            thumbnailWidth = thumbnail.width;
+            thumbnailHeight = thumbnail.height;
+            thumbnailBuffer = thumbnail.buffer;
+
+            logger.info('evidence.upload.service.thumbnail_generated', {
+              evidenceId: id,
+              thumbnailPath,
+              thumbnailSize: thumbnail.size
+            });
+          }
+        } catch (error) {
+          logger.warn('evidence.upload.service.thumbnail_generation_failed', {
+            evidenceId: id,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }
 
       try {
         logger.info('evidence.upload.service.storage_upload_start', {
-          evidenceId: record.id,
+          evidenceId: id,
           bucket: env.SUPABASE_STORAGE_BUCKET,
           filePath
         });
+
         await storage.uploadEvidenceFile(env.SUPABASE_STORAGE_BUCKET, filePath, file.buffer, file.mimetype);
+
+        if (thumbnailPath && thumbnailBuffer) {
+          await storage.uploadEvidenceFile(
+            env.SUPABASE_STORAGE_BUCKET,
+            thumbnailPath,
+            thumbnailBuffer,
+            'image/jpeg'
+          );
+        }
+
+        record = await evidenceRepository.create({
+          id,
+          project: {
+            connect: {
+              id: milestone.projectId
+            }
+          },
+          milestone: {
+            connect: {
+              id: milestone.id
+            }
+          },
+          uploader: {
+            connect: {
+              id: userId
+            }
+          },
+          evidenceType: toEvidenceType(input.evidence_type),
+          filePath,
+          originalFilename: file.originalname,
+          contentType: file.mimetype,
+          sizeBytes: BigInt(file.size),
+          ...(width !== undefined ? { width } : {}),
+          ...(height !== undefined ? { height } : {}),
+          ...(thumbnailPath !== undefined ? { thumbnailPath } : {}),
+          ...(thumbnailSize !== undefined ? { thumbnailSize } : {}),
+          ...(thumbnailWidth !== undefined ? { thumbnailWidth } : {}),
+          ...(thumbnailHeight !== undefined ? { thumbnailHeight } : {})
+        });
+
+        logger.info('evidence.upload.service.record_created', {
+          evidenceId: record.id,
+          milestoneId: milestone.id,
+          projectId: milestone.projectId,
+          originalFilename: file.originalname,
+          contentType: file.mimetype,
+          sizeBytes: file.size
+        });
       } catch (error) {
         logger.error('evidence.upload.service.storage_upload_failed_rolling_back', {
-          evidenceId: record.id,
+          evidenceId: record?.id ?? id,
           filePath
         });
-        await evidenceRepository.delete(record.id);
+
+        if (record) {
+          await evidenceRepository.delete(record.id).catch(() => undefined);
+        }
+
+        if (thumbnailPath) {
+          await storage.deleteEvidenceFile(env.SUPABASE_STORAGE_BUCKET, thumbnailPath).catch(() => undefined);
+        }
+
+        await storage.deleteEvidenceFile(env.SUPABASE_STORAGE_BUCKET, filePath).catch(() => undefined);
         throw error;
+      }
+
+      if (!record) {
+        throw new AppError(500, 'Evidence record was not created after upload', 'EVIDENCE_CREATE_FAILED');
       }
 
       logger.info('evidence.upload.service.storage_uploaded', {
@@ -176,9 +259,13 @@ export const evidenceService = {
     }
 
     const milestone = await accessService.assertMilestoneOwner(evidence.milestoneId, userId);
+    ensureProjectActive(milestone.project.state);
     ensureEvidenceMutable(milestone.status);
 
     await storage.deleteEvidenceFile(env.SUPABASE_STORAGE_BUCKET, evidence.filePath);
+    if (evidence.thumbnailPath) {
+      await storage.deleteEvidenceFile(env.SUPABASE_STORAGE_BUCKET, evidence.thumbnailPath).catch(() => undefined);
+    }
     await evidenceRepository.delete(evidenceId);
 
     logger.info('evidence.delete.service.deleted', {

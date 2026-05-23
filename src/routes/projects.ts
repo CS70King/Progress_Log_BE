@@ -10,7 +10,7 @@ import {
 } from '../validators/projectSchemas';
 import { createMilestoneSchema } from '../validators/milestoneSchemas';
 import { createSnapshotSchema } from '../validators/snapshotSchemas';
-import { shareProjectSchema } from '../validators/shareSchemas';
+import { projectShareLinkParamSchema, shareProjectSchema } from '../validators/shareSchemas';
 import { asyncHandler } from '../utils/asyncHandler';
 
 export const projectRouter = Router();
@@ -52,6 +52,11 @@ projectRouter.post(
   validateParams(projectIdParamSchema),
   validateBody(shareProjectSchema),
   asyncHandler(projectController.createShareLink)
+);
+projectRouter.delete(
+  '/:projectId/share/:shareLinkId',
+  validateParams(projectShareLinkParamSchema),
+  asyncHandler(projectController.revokeShareLink)
 );
 projectRouter.get(
   '/:projectId/dossier',

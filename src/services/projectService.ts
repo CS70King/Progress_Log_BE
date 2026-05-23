@@ -343,6 +343,15 @@ const assertProjectDedupeAvailable = async (dedupeKey: string, currentProjectId?
   }
 };
 
+const ensureProjectActiveForMutation = (projectState: ProjectState) => {
+  if (projectState !== ProjectState.ACTIVE) {
+    logger.warn('project.mutation_state.denied', {
+      projectState
+    });
+    throw new AppError(409, 'Only active projects can be changed', 'CONFLICT');
+  }
+};
+
 export const projectService = {
   async createProject(
     userId: string,
@@ -562,7 +571,8 @@ export const projectService = {
       userId,
       reviewerPhone: maskPhone(reviewerPhone)
     });
-    await accessService.assertProjectOwner(projectId, userId);
+    const projectAccess = await accessService.assertProjectOwner(projectId, userId);
+    ensureProjectActiveForMutation(projectAccess.state);
 
     const owner = await userRepository.findById(userId);
     if (owner?.phone === reviewerPhone) {

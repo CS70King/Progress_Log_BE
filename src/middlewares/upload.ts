@@ -1,12 +1,23 @@
 import { RequestHandler } from 'express';
 import multer from 'multer';
+import { env } from '../config/env';
 import { AppError } from '../utils/appError';
+import { allowedUploadMimeTypes } from '../utils/fileValidation';
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    files: 20,
-    fileSize: 50 * 1024 * 1024
+    files: env.UPLOAD_MAX_FILES,
+    fileSize: Math.floor(env.UPLOAD_MAX_FILE_SIZE_MB * 1024 * 1024),
+    fields: 10
+  },
+  fileFilter: (_req, file, callback) => {
+    if (!allowedUploadMimeTypes.has(file.mimetype)) {
+      callback(new AppError(400, `Unsupported file type "${file.mimetype}"`, 'UNSUPPORTED_FILE_TYPE'));
+      return;
+    }
+
+    callback(null, true);
   }
 });
 

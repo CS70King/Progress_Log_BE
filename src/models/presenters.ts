@@ -4,6 +4,7 @@ import {
   MilestoneReview,
   Project,
   ProjectMember,
+  ShareLink,
   Snapshot,
   User
 } from '@prisma/client';
@@ -95,6 +96,12 @@ export const presentEvidenceItem = (item: EvidenceItem & { uploader?: User | nul
   original_filename: item.originalFilename,
   content_type: item.contentType,
   size_bytes: Number(item.sizeBytes),
+  width: item.width ?? null,
+  height: item.height ?? null,
+  thumbnail_path: item.thumbnailPath ?? null,
+  thumbnail_size_bytes: item.thumbnailSize ? Number(item.thumbnailSize) : null,
+  thumbnail_width: item.thumbnailWidth ?? null,
+  thumbnail_height: item.thumbnailHeight ?? null,
   created_at: item.createdAt.toISOString()
 });
 
@@ -122,4 +129,16 @@ export const presentSnapshot = (snapshot: Snapshot & { _count?: { milestones: nu
   title: snapshot.title,
   milestone_count: snapshot._count?.milestones || 0,
   created_at: snapshot.createdAt.toISOString()
+});
+
+export const presentShareLink = (shareLink: ShareLink) => ({
+  id: shareLink.id,
+  token: shareLink.token,
+  resource_type: shareLink.resourceType.toLowerCase(),
+  resource_id: shareLink.resourceId,
+  created_by: shareLink.createdBy,
+  created_at: shareLink.createdAt.toISOString(),
+  revoked_at: shareLink.revokedAt?.toISOString() ?? null,
+  expires_at: shareLink.expiresAt?.toISOString() ?? null,
+  url_path: `/share/${shareLink.token}/dossier`
 });

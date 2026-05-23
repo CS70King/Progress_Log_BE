@@ -14,6 +14,37 @@ export const userRepository = {
     return prisma.user.findUnique({ where: { id } });
   },
 
+  recordFailedLoginAttempt(userId: string, failedLoginAttempts: number, lockedUntil: Date | null) {
+    return prisma.user.update({
+      where: { id: userId },
+      data: {
+        failedLoginAttempts,
+        lockedUntil
+      }
+    });
+  },
+
+  clearLoginProtection(userId: string) {
+    return prisma.user.update({
+      where: { id: userId },
+      data: {
+        failedLoginAttempts: 0,
+        lockedUntil: null
+      }
+    });
+  },
+
+  bumpTokenVersion(userId: string) {
+    return prisma.user.update({
+      where: { id: userId },
+      data: {
+        tokenVersion: {
+          increment: 1
+        }
+      }
+    });
+  },
+
   findReviewerByPhone(phone: string) {
     return prisma.user.findFirst({
       where: {
