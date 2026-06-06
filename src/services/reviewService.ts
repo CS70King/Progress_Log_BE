@@ -4,6 +4,7 @@ import { presentMilestone, presentMilestoneReview } from '../models/presenters';
 import { AppError } from '../utils/appError';
 import { toReviewDecision } from '../utils/enums';
 import { logger } from '../utils/logger';
+import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
 
 const ensureProjectActive = (projectState: ProjectState) => {
@@ -93,6 +94,7 @@ export const reviewService = {
       nextStatus,
       reviewId: result.review.id
     });
+    await cacheInvalidation.invalidateProjectDossier(milestone.projectId);
     return {
       milestone: presentMilestone(result.milestone),
       review: presentMilestoneReview(result.review)

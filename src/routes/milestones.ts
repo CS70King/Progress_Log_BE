@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import { env } from '../config/env';
 import { milestoneController } from '../controllers/milestoneController';
 import { requireAuth } from '../middlewares/auth';
+import { createRateLimit } from '../middlewares/rateLimit';
 import { uploadEvidenceFiles } from '../middlewares/upload';
 import { validateBody, validateParams } from '../middlewares/validate';
 import { evidenceUploadSchema } from '../validators/evidenceSchemas';
@@ -11,6 +13,13 @@ import { asyncHandler } from '../utils/asyncHandler';
 export const milestoneRouter = Router();
 
 milestoneRouter.use(requireAuth);
+
+const evidenceUploadRateLimit = createRateLimit({
+  keyPrefix: 'evidence-upload',
+  windowMs: env.EVIDENCE_UPLOAD_RATE_LIMIT_WINDOW_MS,
+  max: env.EVIDENCE_UPLOAD_RATE_LIMIT_MAX,
+  resolveKey: (req) => `${req.auth?.userId ?? 'unknown'}:${req.ip || 'unknown'}`
+});
 
 milestoneRouter.get('/:milestoneId', validateParams(milestoneIdParamSchema), asyncHandler(milestoneController.get));
 milestoneRouter.patch(
@@ -27,6 +36,7 @@ milestoneRouter.post(
 milestoneRouter.post(
   '/:milestoneId/evidence',
   validateParams(milestoneIdParamSchema),
+  evidenceUploadRateLimit,
   uploadEvidenceFiles('files'),
   validateBody(evidenceUploadSchema),
   asyncHandler(milestoneController.uploadEvidence)

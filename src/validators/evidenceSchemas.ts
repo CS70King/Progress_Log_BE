@@ -5,5 +5,5 @@ export const evidenceIdParamSchema = z.object({
 });
 
 export const evidenceUploadSchema = z.object({
-  evidence_type: z.enum(['photo', 'video', 'document', 'receipt', 'other'])
+  evidence_type: z.enum(['photo', 'video', 'document'])
 });

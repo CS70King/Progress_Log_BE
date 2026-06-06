@@ -1,23 +1,29 @@
 #!/usr/bin/env tsx
 
-import { PrismaClient, ProjectMemberRole, MilestoneStatus, ReviewDecision, ProjectType, ProjectState, EvidenceType } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { hashPassword } from '../src/utils/password';
-import { ImageService } from '../src/services/imageService';
+import crypto from 'node:crypto';
+import readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
+import {
+  EvidenceType,
+  MilestoneStatus,
+  ProjectMemberRole,
+  ProjectState,
+  ProjectType,
+  ReviewDecision,
+  UserRole
+} from '@prisma/client';
 import { env } from '../src/config/env';
-import { storage } from '../src/storage';
-import axios from 'axios';
-
-const adapter = new PrismaPg({
-  connectionString: env.DATABASE_URL
-});
-
-const prisma = new PrismaClient({ adapter });
+import { prisma } from '../src/db/prisma';
+import { ImageService } from '../src/services/imageService';
+import { createStorageClient, ensureSupabaseBucket } from '../src/storage/supabaseStorage';
+import { storage, storageDriver } from '../src/storage';
+import { hashPassword } from '../src/utils/password';
 
 const WORKER_SEED_PASSWORD = 'WorkerDemo123!';
 const REVIEWER_SEED_PASSWORD = 'ReviewerDemo123!';
+const WORKER_PHONE = '+10123456789';
+const REVIEWER_PHONE = '+10123456780';
 
-// Realistic construction project data
 const projectTitles = [
   'Downtown Office Tower Renovation',
   'Highway Bridge Construction',
@@ -32,16 +38,16 @@ const projectTitles = [
 ];
 
 const projectDescriptions = [
-  'Complete renovation of 20-story office building with modern amenities and energy-efficient systems',
-  'Construction of 2-mile highway bridge with pedestrian walkway and bicycle lane',
-  'Development of 150-unit residential complex with underground parking and community facilities',
-  'Expansion of existing shopping mall with 50 new retail spaces and food court',
-  'Complete modernization of 30-year-old school building with new classrooms and technology infrastructure',
-  'Addition of new hospital wing with 100 beds, surgical suites, and diagnostic facilities',
-  'Construction of 500,000 sq ft warehouse complex with loading docks and office space',
-  'Upgrade of aging water treatment facility with new filtration systems and capacity expansion',
-  'New 45,000-seat sports stadium with modern amenities and concession facilities',
-  'Complete renovation of airport terminal with expanded security areas and passenger facilities'
+  'Complete renovation of a 20-story office building with modern amenities and energy-efficient systems.',
+  'Construction of a two-mile highway bridge with pedestrian walkway and bicycle lane.',
+  'Development of a 150-unit residential complex with underground parking and community facilities.',
+  'Expansion of an existing shopping mall with 50 new retail spaces and a food court.',
+  'Modernization of an aging school building with new classrooms and technology infrastructure.',
+  'Addition of a new hospital wing with surgical suites and diagnostic facilities.',
+  'Construction of a 500,000 square foot warehouse complex with loading docks and office space.',
+  'Upgrade of a water treatment facility with new filtration systems and capacity expansion.',
+  'New 45,000-seat sports stadium with modern amenities and concession facilities.',
+  'Renovation of an airport terminal with expanded security areas and passenger facilities.'
 ];
 
 const milestoneTitles = [
@@ -58,46 +64,80 @@ const milestoneTitles = [
 ];
 
 const milestoneDescriptions = [
-  'Complete site clearing, grading, and excavation to required depths',
-  'Pour concrete foundations, footings, and slab work according to structural specifications',
-  'Erect structural steel frame including columns, beams, and bracing systems',
-  'Install exterior walls, windows, and building envelope systems',
-  'Complete roofing system installation including waterproofing and insulation',
-  'Install interior partition walls, door frames, and structural components',
-  'Install mechanical, electrical, and plumbing systems throughout building',
-  'Complete interior finishes including flooring, painting, and fixtures',
-  'Complete exterior landscaping, parking lots, and site improvements',
-  'Conduct final inspections, testing, and commissioning of all systems'
+  'Complete site clearing, grading, and excavation to required depths.',
+  'Pour concrete foundations, footings, and slab work according to structural specifications.',
+  'Erect structural steel frame including columns, beams, and bracing systems.',
+  'Install exterior walls, windows, and envelope systems.',
+  'Complete roofing system installation including waterproofing and insulation.',
+  'Install interior partition walls, door frames, and structural components.',
+  'Install mechanical, electrical, and plumbing systems throughout the building.',
+  'Complete interior finishes including flooring, painting, and fixtures.',
+  'Complete exterior landscaping, parking lots, and site improvements.',
+  'Conduct final inspections, testing, and commissioning of all systems.'
 ];
 
-// Realistic evidence descriptions
-const evidenceDescriptions = [
-  'Initial site survey and grading measurements',
-  'Foundation concrete pour with rebar placement verification',
-  'Steel beam installation with bolt torque verification',
-  'Window installation with weatherproofing detail',
-  'Roofing membrane installation with seam welding',
-  'Interior wall framing with electrical rough-in',
-  'HVAC ductwork installation and testing',
-  'Finished flooring with transition details',
-  'Final landscaping and irrigation system',
-  'Final inspection walkthrough with punch list items'
+type SeedEvidenceType = (typeof EvidenceType)['PHOTO' | 'VIDEO' | 'DOCUMENT'];
+type SeedAsset = {
+  evidenceType: SeedEvidenceType;
+  buffer: Buffer;
+  contentType: 'image/jpeg' | 'video/mp4' | 'application/pdf';
+  originalFilename: string;
+};
+let cachedSeedVideoBuffer: Buffer | null = null;
+const seedVideoUrls = [
+  'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+  'https://samplelib.com/lib/preview/mp4/sample-5s.mp4'
 ];
 
-// Realistic image URLs from Picsum with construction-related seeds
-const getImageUrls = (count: number, baseSeed: string): string[] => {
-  return Array.from({ length: count }, (_, i) => 
-    `https://picsum.photos/seed/${baseSeed}-${i + 1}/800/600.jpg`
-  );
+type SeedPlan = {
+  projectCount: number;
+  minMilestones: number;
+  maxMilestones: number;
+  minImagesPerMilestone: number;
+  maxImagesPerMilestone: number;
 };
 
-const getRandomElement = <T>(array: T[]): T => {
+type SeedRunState = {
+  userIds: string[];
+  projectIds: string[];
+};
+
+type SupportedSeedEnvironment = 'development' | 'staging' | 'production';
+
+const defaultSeedPlans: Record<SupportedSeedEnvironment, SeedPlan> = {
+  development: {
+    projectCount: 10,
+    minMilestones: 5,
+    maxMilestones: 15,
+    minImagesPerMilestone: 3,
+    maxImagesPerMilestone: 20
+  },
+  staging: {
+    projectCount: 5,
+    minMilestones: 5,
+    maxMilestones: 12,
+    minImagesPerMilestone: 3,
+    maxImagesPerMilestone: 12
+  },
+  production: {
+    projectCount: 3,
+    minMilestones: 4,
+    maxMilestones: 10,
+    minImagesPerMilestone: 2,
+    maxImagesPerMilestone: 8
+  }
+};
+
+const assertSupportedSeedEnvironment = (): SupportedSeedEnvironment => {
+  if (env.NODE_ENV === 'development' || env.NODE_ENV === 'staging' || env.NODE_ENV === 'production') {
+    return env.NODE_ENV;
+  }
+
+  throw new Error(`Seeding is only supported in development, staging, or production. Current environment: ${env.NODE_ENV}`);
+};
+
+const getRandomElement = <T>(array: readonly T[]): T => {
   return array[Math.floor(Math.random() * array.length)];
-};
-
-const getRandomElements = <T>(array: T[], count: number): T[] => {
-  const shuffled = [...array].sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, count);
 };
 
 const getRandomInt = (min: number, max: number): number => {
@@ -108,110 +148,319 @@ const getRandomDate = (start: Date, end: Date): Date => {
   return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
 };
 
-// Function to create realistic evidence with thumbnail metadata (but no actual upload for now)
-const createRealImageEvidence = async (
-  projectId: string, 
-  milestoneId: string, 
-  workerId: string, 
-  evidenceIndex: number,
-  projectIndex: number,
-  milestoneIndex: number
-) => {
+const getSeedPlan = (): SeedPlan => {
+  const defaults = defaultSeedPlans[assertSupportedSeedEnvironment()];
+
+  return {
+    projectCount: env.SEED_PROJECT_COUNT ?? defaults.projectCount,
+    minMilestones: env.SEED_MIN_MILESTONES ?? defaults.minMilestones,
+    maxMilestones: env.SEED_MAX_MILESTONES ?? defaults.maxMilestones,
+    minImagesPerMilestone: env.SEED_MIN_IMAGES_PER_MILESTONE ?? defaults.minImagesPerMilestone,
+    maxImagesPerMilestone: env.SEED_MAX_IMAGES_PER_MILESTONE ?? defaults.maxImagesPerMilestone
+  };
+};
+
+const promptForConfirmation = async (plan: SeedPlan) => {
+  if (env.NODE_ENV !== 'production') {
+    return;
+  }
+
+  console.log('Starting database seeding for production.');
+  console.log('This will add seed data to the current production database.');
+  console.log(`Environment: ${env.NODE_ENV}`);
+  console.log(`Bucket: ${env.SUPABASE_STORAGE_BUCKET}`);
+  console.log(`Projects to create: ${plan.projectCount}`);
+  console.log('Production seeding should only be used when you intentionally want the demo dataset.');
+  console.log('Type "SEED PRODUCTION" to continue.');
+
+  const rl = readline.createInterface({ input, output });
   try {
-    // Download a real image from Picsum to get buffer
-    const imageUrl = `https://picsum.photos/seed/progress-log-${projectIndex}-${milestoneIndex}-${evidenceIndex}/800/600.jpg`;
-    const response = await fetch(imageUrl);
-    const imageBuffer = Buffer.from(await response.arrayBuffer());
-    
-    // Generate filename and paths
-    const originalFilename = `evidence-${evidenceIndex + 1}.jpg`;
-    const filePath = `projects/${projectId}/milestones/${milestoneId}/${originalFilename}`;
-    
-    // Generate thumbnail using our ImageService
-    const thumbnail = await ImageService.generateThumbnail(imageBuffer);
-    const thumbnailPath = ImageService.getThumbnailPath(filePath);
-    
-    // Extract image metadata
-    const metadata = await ImageService.extractMetadata(imageBuffer);
-    
-    // Create database record with all metadata using raw SQL
-    const evidence = await prisma.evidenceItem.create({
+    const confirmation = (await rl.question('Confirmation: ')).trim();
+    if (confirmation !== 'SEED PRODUCTION') {
+      throw new Error('Seed cancelled by user.');
+    }
+  } finally {
+    rl.close();
+  }
+};
+
+const ensureStorageReady = async () => {
+  if (storageDriver !== 'supabase') {
+    console.log(`Storage driver is ${storageDriver}; seed files will not be persisted to Supabase.`);
+    return;
+  }
+
+  await ensureSupabaseBucket(createStorageClient(), env.SUPABASE_STORAGE_BUCKET, {
+    allowCreate: env.NODE_ENV !== 'production'
+  });
+};
+
+const findExistingSeedUsers = async () => {
+  return prisma.user.findMany({
+    where: {
+      phone: {
+        in: [WORKER_PHONE, REVIEWER_PHONE]
+      }
+    },
+    select: {
+      id: true,
+      phone: true,
+      role: true,
+      name: true
+    }
+  });
+};
+
+const downloadSeedImage = async (projectIndex: number, milestoneIndex: number, evidenceIndex: number) => {
+  const imageUrl = `https://picsum.photos/seed/progress-log-${projectIndex}-${milestoneIndex}-${evidenceIndex}/800/600.jpg`;
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download seed image from ${imageUrl}. HTTP ${response.status}`);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+};
+
+const downloadSeedVideo = async () => {
+  if (cachedSeedVideoBuffer) {
+    return cachedSeedVideoBuffer;
+  }
+
+  let lastError: unknown;
+  for (const videoUrl of seedVideoUrls) {
+    try {
+      const response = await fetch(videoUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      cachedSeedVideoBuffer = Buffer.from(await response.arrayBuffer());
+      return cachedSeedVideoBuffer;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new Error(
+    `Failed to download a seed video from the configured sources: ${lastError instanceof Error ? lastError.message : 'Unknown error'}`
+  );
+};
+
+const escapePdfText = (value: string) => value.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+
+const buildSeedPdf = (title: string, projectIndex: number, milestoneIndex: number, evidenceIndex: number) => {
+  const lines = [
+    `Progress Log File`,
+    `Title: ${title}`,
+    `Project Index: ${projectIndex + 1}`,
+    `Milestone Index: ${milestoneIndex + 1}`,
+    `Evidence Index: ${evidenceIndex + 1}`
+  ];
+  const textCommands = lines
+    .map((line, index) => `BT /F1 16 Tf 50 ${760 - index * 28} Td (${escapePdfText(line)}) Tj ET`)
+    .join('\n');
+
+  const objects = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj',
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj',
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj',
+    `4 0 obj\n<< /Length ${Buffer.byteLength(textCommands, 'utf8')} >>\nstream\n${textCommands}\nendstream\nendobj`,
+    '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj'
+  ];
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  for (const object of objects) {
+    offsets.push(Buffer.byteLength(pdf, 'utf8'));
+    pdf += `${object}\n`;
+  }
+
+  const xrefOffset = Buffer.byteLength(pdf, 'utf8');
+  pdf += `xref\n0 ${objects.length + 1}\n`;
+  pdf += '0000000000 65535 f \n';
+  for (let index = 1; index < offsets.length; index += 1) {
+    pdf += `${offsets[index].toString().padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+  return Buffer.from(pdf, 'utf8');
+};
+
+const createSeedAsset = async (input: {
+  projectIndex: number;
+  milestoneIndex: number;
+  evidenceIndex: number;
+  evidenceType: SeedEvidenceType;
+}) => {
+  if (input.evidenceType === EvidenceType.PHOTO) {
+    return {
+      evidenceType: input.evidenceType,
+      buffer: await downloadSeedImage(input.projectIndex, input.milestoneIndex, input.evidenceIndex),
+      contentType: 'image/jpeg',
+      originalFilename: `photo-${input.evidenceIndex + 1}.jpg`
+    } satisfies SeedAsset;
+  }
+
+  if (input.evidenceType === EvidenceType.VIDEO) {
+    return {
+      evidenceType: input.evidenceType,
+      buffer: await downloadSeedVideo(),
+      contentType: 'video/mp4',
+      originalFilename: `video-${input.evidenceIndex + 1}.mp4`
+    } satisfies SeedAsset;
+  }
+
+  return {
+    evidenceType: input.evidenceType,
+    buffer: buildSeedPdf(
+      `Milestone file ${input.evidenceIndex + 1}`,
+      input.projectIndex,
+      input.milestoneIndex,
+      input.evidenceIndex
+    ),
+    contentType: 'application/pdf',
+    originalFilename: `file-${input.evidenceIndex + 1}.pdf`
+  } satisfies SeedAsset;
+};
+
+const buildEvidencePlan = (count: number) => {
+  const planned: SeedEvidenceType[] = [EvidenceType.PHOTO];
+
+  if (count >= 2) {
+    planned.push(EvidenceType.VIDEO);
+  }
+
+  if (count >= 3) {
+    planned.push(EvidenceType.DOCUMENT);
+  }
+
+  while (planned.length < count) {
+    planned.push(
+      getRandomElement([
+        EvidenceType.PHOTO,
+        EvidenceType.PHOTO,
+        EvidenceType.PHOTO,
+        EvidenceType.VIDEO,
+        EvidenceType.DOCUMENT
+      ])
+    );
+  }
+
+  return planned.sort(() => Math.random() - 0.5);
+};
+
+const createImageEvidence = async (input: {
+  projectId: string;
+  milestoneId: string;
+  workerId: string;
+  evidenceIndex: number;
+  projectIndex: number;
+  milestoneIndex: number;
+  evidenceType: SeedEvidenceType;
+}) => {
+  const asset = await createSeedAsset(input);
+
+  const evidenceId = crypto.randomUUID();
+  const baseName = asset.originalFilename;
+  const filePath = `projects/${input.projectId}/milestones/${input.milestoneId}/${evidenceId}-${baseName}`;
+  const thumbnailPath = asset.contentType.startsWith('image/') ? ImageService.getThumbnailPath(filePath) : undefined;
+  let width: number | undefined;
+  let height: number | undefined;
+  let thumbnailSize: bigint | undefined;
+  let thumbnailWidth: number | undefined;
+  let thumbnailHeight: number | undefined;
+  let thumbnailBuffer: Buffer | undefined;
+
+  if (asset.contentType.startsWith('image/')) {
+    const metadata = await ImageService.extractMetadata(asset.buffer);
+    const thumbnail = await ImageService.generateThumbnail(asset.buffer);
+    width = metadata.width;
+    height = metadata.height;
+    thumbnailBuffer = thumbnail.buffer;
+    thumbnailSize = BigInt(thumbnail.size);
+    thumbnailWidth = thumbnail.width;
+    thumbnailHeight = thumbnail.height;
+  }
+
+  await storage.uploadEvidenceFile(env.SUPABASE_STORAGE_BUCKET, filePath, asset.buffer, asset.contentType);
+
+  try {
+    if (thumbnailPath && thumbnailBuffer) {
+      await storage.uploadEvidenceFile(env.SUPABASE_STORAGE_BUCKET, thumbnailPath, thumbnailBuffer, 'image/jpeg');
+    }
+
+    return await prisma.evidenceItem.create({
       data: {
-        projectId,
-        milestoneId,
-        uploadedBy: workerId,
-        evidenceType: 'PHOTO',
-        originalFilename,
+        id: evidenceId,
+        projectId: input.projectId,
+        milestoneId: input.milestoneId,
+        uploadedBy: input.workerId,
+        evidenceType: input.evidenceType,
+        originalFilename: baseName,
         filePath,
-        contentType: 'image/jpeg',
-        sizeBytes: BigInt(imageBuffer.length)
+        contentType: asset.contentType,
+        sizeBytes: BigInt(asset.buffer.length),
+        ...(width !== undefined ? { width } : {}),
+        ...(height !== undefined ? { height } : {}),
+        ...(thumbnailPath ? { thumbnailPath } : {}),
+        ...(thumbnailSize !== undefined ? { thumbnailSize } : {}),
+        ...(thumbnailWidth !== undefined ? { thumbnailWidth } : {}),
+        ...(thumbnailHeight !== undefined ? { thumbnailHeight } : {})
       }
     });
-    
-    // Update with image metadata using raw SQL
-    await prisma.$executeRaw`
-      UPDATE evidence_items 
-      SET 
-        width = ${metadata.width},
-        height = ${metadata.height},
-        thumbnail_path = ${thumbnailPath},
-        thumbnail_size = ${thumbnail.size},
-        thumbnail_width = ${thumbnail.width},
-        thumbnail_height = ${thumbnail.height}
-      WHERE id = ${evidence.id}
-    `;
-    
-    console.log(`✅ Created image evidence with metadata: ${originalFilename} (${imageBuffer.length} bytes)`);
-    console.log(`   Dimensions: ${metadata.width}x${metadata.height}, Thumbnail: ${thumbnail.width}x${thumbnail.height} (${thumbnail.size} bytes)`);
-    
-    return evidence;
-    
   } catch (error) {
-    console.error(`❌ Failed to create image evidence:`, error);
+    if (thumbnailPath) {
+      await storage.deleteEvidenceFile(env.SUPABASE_STORAGE_BUCKET, thumbnailPath).catch(() => undefined);
+    }
+    await storage.deleteEvidenceFile(env.SUPABASE_STORAGE_BUCKET, filePath).catch(() => undefined);
     throw error;
   }
 };
 
 const createWorker = async () => {
-  const hashedPassword = await hashPassword(WORKER_SEED_PASSWORD);
-  
-  return await prisma.user.create({
+  const passwordHash = await hashPassword(WORKER_SEED_PASSWORD);
+
+  return prisma.user.create({
     data: {
       name: 'John Construction Manager',
-      phone: '+15555550100',
+      phone: WORKER_PHONE,
       country: 'United States',
       company: 'BuildRight Construction',
-      role: 'WORKER',
-      passwordHash: hashedPassword
+      role: UserRole.WORKER,
+      passwordHash
     }
   });
 };
 
 const createReviewer = async () => {
-  const hashedPassword = await hashPassword(REVIEWER_SEED_PASSWORD);
-  
-  return await prisma.user.create({
+  const passwordHash = await hashPassword(REVIEWER_SEED_PASSWORD);
+
+  return prisma.user.create({
     data: {
       name: 'Sarah Quality Inspector',
-      phone: '+15555550200',
+      phone: REVIEWER_PHONE,
       country: 'United States',
       company: 'Quality Assurance Partners',
-      role: 'REVIEWER',
-      passwordHash: hashedPassword
+      role: UserRole.REVIEWER,
+      passwordHash
     }
   });
 };
 
-const createProjectWithMilestones = async (workerId: string, reviewerId: string, projectIndex: number) => {
-  const projectType = getRandomElement<ProjectType>(['GENERIC', 'CONSTRUCTION', 'SERVICE']);
-  const projectState = getRandomElement<ProjectState>(['ACTIVE', 'COMPLETED', 'ABANDONED']);
-  const projectTitle = projectTitles[projectIndex % projectTitles.length];
-  const projectDescription = projectDescriptions[projectIndex % projectDescriptions.length];
-  
+const createProjectWithMilestones = async (
+  workerId: string,
+  reviewerId: string,
+  projectIndex: number,
+  plan: SeedPlan,
+  state: SeedRunState
+) => {
+  const projectType = getRandomElement([ProjectType.GENERIC, ProjectType.CONSTRUCTION, ProjectType.SERVICE]);
+  const projectState = getRandomElement([ProjectState.ACTIVE, ProjectState.COMPLETED, ProjectState.ABANDONED]);
+
   const project = await prisma.project.create({
     data: {
-      title: projectTitle,
-      description: projectDescription,
+      title: projectTitles[projectIndex % projectTitles.length],
+      description: projectDescriptions[projectIndex % projectDescriptions.length],
       projectType,
       state: projectState,
       ownerId: workerId,
@@ -223,21 +472,15 @@ const createProjectWithMilestones = async (workerId: string, reviewerId: string,
       }
     }
   });
+  state.projectIds.push(project.id);
 
-  // Create 5-15 milestones per project
-  const milestoneCount = getRandomInt(5, 15);
-  const milestones = [];
-  
-  for (let i = 0; i < milestoneCount; i++) {
-    const milestoneTitle = milestoneTitles[i % milestoneTitles.length];
-    const milestoneDescription = milestoneDescriptions[i % milestoneDescriptions.length];
-    const activityDate = getRandomDate(new Date(2024, 0, 1), new Date(2024, 11, 31));
-    
-    // Determine milestone status based on project state
+  const milestoneCount = getRandomInt(plan.minMilestones, plan.maxMilestones);
+
+  for (let milestoneIndex = 0; milestoneIndex < milestoneCount; milestoneIndex += 1) {
     let status: MilestoneStatus;
-    if (projectState === 'COMPLETED') {
+    if (projectState === ProjectState.COMPLETED) {
       status = MilestoneStatus.APPROVED;
-    } else if (projectState === 'ABANDONED') {
+    } else if (projectState === ProjectState.ABANDONED) {
       status = getRandomElement([MilestoneStatus.DRAFT, MilestoneStatus.SUBMITTED]);
     } else {
       status = getRandomElement([
@@ -250,125 +493,199 @@ const createProjectWithMilestones = async (workerId: string, reviewerId: string,
 
     const milestone = await prisma.milestone.create({
       data: {
-        title: milestoneTitle,
-        description: milestoneDescription,
-        activityDate,
+        title: milestoneTitles[milestoneIndex % milestoneTitles.length],
+        description: milestoneDescriptions[milestoneIndex % milestoneDescriptions.length],
+        activityDate: getRandomDate(new Date(2024, 0, 1), new Date(2024, 11, 31)),
         status,
         projectId: project.id,
         createdBy: workerId
       }
     });
 
-    // Create evidence for milestones
-    const evidenceCount = getRandomInt(3, 20); // Some milestones have up to 20 images
-    const evidenceItems = [];
-    
-    for (let j = 0; j < evidenceCount; j++) {
-      const evidenceType = getRandomElement<EvidenceType>(['PHOTO', 'DOCUMENT', 'RECEIPT']);
-      
-      if (evidenceType === 'PHOTO') {
-        // Create real image evidence with thumbnails
-        const evidence = await createRealImageEvidence(
-          project.id,
-          milestone.id,
-          workerId,
-          j,
-          projectIndex,
-          i
-        );
-        evidenceItems.push(evidence);
-      } else {
-        // Create fake document/receipt evidence
-        const evidence = await prisma.evidenceItem.create({
-          data: {
-            projectId: project.id,
-            milestoneId: milestone.id,
-            uploadedBy: workerId,
-            evidenceType,
-            originalFilename: `evidence-${j + 1}.${evidenceType === 'DOCUMENT' ? 'pdf' : 'jpg'}`,
-            filePath: `projects/${project.id}/milestones/${milestone.id}/evidence-${j + 1}.${evidenceType === 'DOCUMENT' ? 'pdf' : 'jpg'}`,
-            contentType: evidenceType === 'DOCUMENT' ? 'application/pdf' : 'image/jpeg',
-            sizeBytes: getRandomInt(500000, 5000000) // 0.5MB to 5MB
-          }
-        });
-        evidenceItems.push(evidence);
-      }
+    const evidenceCount = getRandomInt(plan.minImagesPerMilestone, plan.maxImagesPerMilestone);
+    const evidencePlan = buildEvidencePlan(evidenceCount);
+    for (let evidenceIndex = 0; evidenceIndex < evidencePlan.length; evidenceIndex += 1) {
+      const evidenceType = evidencePlan[evidenceIndex];
+      await createImageEvidence({
+        projectId: project.id,
+        milestoneId: milestone.id,
+        workerId,
+        evidenceIndex,
+        projectIndex,
+        milestoneIndex,
+        evidenceType
+      });
     }
 
-    // Add review for submitted/approved milestones
     if (status === MilestoneStatus.APPROVED || status === MilestoneStatus.NEEDS_REVISION) {
-      const reviewDecision = status === MilestoneStatus.APPROVED ? ReviewDecision.APPROVED : ReviewDecision.NEEDS_REVISION;
-      const reviewNote = status === MilestoneStatus.APPROVED 
-        ? 'Work meets all quality standards and specifications. Approved for next phase.'
-        : 'Minor issues identified. Please address the following items before resubmission.';
-      
       await prisma.milestoneReview.create({
         data: {
           milestoneId: milestone.id,
           reviewerId,
-          decision: reviewDecision,
-          note: reviewNote
+          decision: status === MilestoneStatus.APPROVED ? ReviewDecision.APPROVED : ReviewDecision.NEEDS_REVISION,
+          note:
+            status === MilestoneStatus.APPROVED
+              ? 'Work meets quality standards and is approved for the next phase.'
+              : 'Minor issues identified. Please address the noted items before resubmission.'
+        }
+      });
+    }
+  }
+};
+
+const rollbackSeedRun = async (state: SeedRunState) => {
+  if (!state.userIds.length && !state.projectIds.length) {
+    return;
+  }
+
+  console.warn('Seed failed. Rolling back seeded data from this run...');
+
+  const rollbackProjectIds = [...new Set(state.projectIds)];
+  const rollbackUserIds = [...new Set(state.userIds)];
+
+  if (rollbackProjectIds.length > 0) {
+    const milestones = await prisma.milestone.findMany({
+      where: {
+        projectId: {
+          in: rollbackProjectIds
+        }
+      },
+      select: {
+        id: true
+      }
+    });
+
+    const milestoneIds = milestones.map((milestone) => milestone.id);
+
+    if (milestoneIds.length > 0) {
+      const storedEvidence = await prisma.evidenceItem.findMany({
+        where: {
+          milestoneId: {
+            in: milestoneIds
+          }
+        },
+        select: {
+          filePath: true,
+          thumbnailPath: true
+        }
+      });
+
+      for (const item of storedEvidence) {
+        await storage.deleteEvidenceFile(env.SUPABASE_STORAGE_BUCKET, item.filePath).catch((error) => {
+          console.warn(
+            `Rollback warning: failed to delete storage object ${item.filePath}: ${error instanceof Error ? error.message : String(error)}`
+          );
+        });
+
+        if (item.thumbnailPath) {
+          await storage.deleteEvidenceFile(env.SUPABASE_STORAGE_BUCKET, item.thumbnailPath).catch((error) => {
+            console.warn(
+              `Rollback warning: failed to delete thumbnail ${item.thumbnailPath}: ${error instanceof Error ? error.message : String(error)}`
+            );
+          });
+        }
+      }
+
+      await prisma.milestoneReview.deleteMany({
+        where: {
+          milestoneId: {
+            in: milestoneIds
+          }
+        }
+      });
+
+      await prisma.evidenceItem.deleteMany({
+        where: {
+          milestoneId: {
+            in: milestoneIds
+          }
+        }
+      });
+
+      await prisma.milestone.deleteMany({
+        where: {
+          id: {
+            in: milestoneIds
+          }
         }
       });
     }
 
-    milestones.push(milestone);
+    await prisma.projectMember.deleteMany({
+      where: {
+        projectId: {
+          in: rollbackProjectIds
+        }
+      }
+    });
+
+    await prisma.project.deleteMany({
+      where: {
+        id: {
+          in: rollbackProjectIds
+        }
+      }
+    });
   }
 
-  return { project, milestones };
-};
-
-const getProjectCount = (): number => {
-  switch (env.NODE_ENV) {
-    case 'development':
-      return 10;
-    case 'staging':
-      return 5;
-    case 'production':
-      return 3;
-    default:
-      return 5;
+  if (rollbackUserIds.length > 0) {
+    await prisma.user.deleteMany({
+      where: {
+        id: {
+          in: rollbackUserIds
+        }
+      }
+    });
   }
+
+  console.warn('Rollback completed.');
 };
 
 async function main() {
-  console.log(`🌱 Starting database seeding for ${env.NODE_ENV} environment...`);
-  
+  const plan = getSeedPlan();
+  const seedRunState: SeedRunState = {
+    userIds: [],
+    projectIds: []
+  };
+
   try {
-    // Clean existing data
-    if (env.NODE_ENV === 'development' || env.NODE_ENV === 'staging') {
-      console.log('🧹 Cleaning existing data...');
-      await prisma.evidenceItem.deleteMany();
-      await prisma.milestoneReview.deleteMany();
-      await prisma.milestone.deleteMany();
-      await prisma.projectMember.deleteMany();
-      await prisma.project.deleteMany();
-      await prisma.user.deleteMany();
+    const existingSeedUsers = await findExistingSeedUsers();
+    if (existingSeedUsers.length > 0) {
+      console.log('Seed users already exist. Skipping seed to avoid duplicate demo data.');
+      for (const user of existingSeedUsers) {
+        console.log(`- ${user.phone} (${user.role.toLowerCase()}) ${user.name}`);
+      }
+      console.log('Use the appropriate wipe script first if you want to reseed from scratch.');
+      return;
     }
 
-    // Create users
-    console.log('👷 Creating worker...');
+    await promptForConfirmation(plan);
+    await ensureStorageReady();
+
+    console.log('Creating worker...');
     const worker = await createWorker();
-    
-    console.log('🔍 Creating reviewer...');
-    const reviewer = await createReviewer();
+    seedRunState.userIds.push(worker.id);
 
-    // Create projects
-    const projectCount = getProjectCount();
-    console.log(`🏗️  Creating ${projectCount} projects...`);
-    
-    for (let i = 0; i < projectCount; i++) {
-      console.log(`  Creating project ${i + 1}/${projectCount}: ${projectTitles[i % projectTitles.length]}`);
-      await createProjectWithMilestones(worker.id, reviewer.id, i);
+    console.log('Creating reviewer...');
+    const reviewer = await createReviewer();
+    seedRunState.userIds.push(reviewer.id);
+
+    console.log(`Creating ${plan.projectCount} projects...`);
+    for (let projectIndex = 0; projectIndex < plan.projectCount; projectIndex += 1) {
+      console.log(`  Creating project ${projectIndex + 1}/${plan.projectCount}: ${projectTitles[projectIndex % projectTitles.length]}`);
+      await createProjectWithMilestones(worker.id, reviewer.id, projectIndex, plan, seedRunState);
     }
 
-    console.log('✅ Database seeding completed successfully!');
-    console.log(`📊 Created ${projectCount} projects with realistic milestones and evidence`);
-    console.log(`👷 Worker: +15555550100 (password: ${WORKER_SEED_PASSWORD})`);
-    console.log(`🔍 Reviewer: +15555550200 (password: ${REVIEWER_SEED_PASSWORD})`);
-    
+    console.log('Database seeding completed successfully.');
+    console.log(`Worker credentials: ${WORKER_PHONE} / ${WORKER_SEED_PASSWORD}`);
+    console.log(`Reviewer credentials: ${REVIEWER_PHONE} / ${REVIEWER_SEED_PASSWORD}`);
   } catch (error) {
-    console.error('❌ Error seeding database:', error);
+    console.error('Error seeding database:', error);
+    try {
+      await rollbackSeedRun(seedRunState);
+    } catch (rollbackError) {
+      console.error('Seed rollback failed:', rollbackError);
+    }
     throw error;
   } finally {
     await prisma.$disconnect();
@@ -378,4 +695,3 @@ async function main() {
 if (require.main === module) {
   main();
 }
-

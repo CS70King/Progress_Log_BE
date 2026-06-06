@@ -2,6 +2,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { UpstashRestClient } from '../helpers/upstash/upstashRest';
 
 type RateLimitResult = {
   count: number;
@@ -407,6 +408,42 @@ class RedisRateLimitStore implements RateLimitStore {
   }
 }
 
+class UpstashRateLimitStore implements RateLimitStore {
+  private readonly client = new UpstashRestClient(
+    env.UPSTASH_REDIS_REST_URL as string,
+    env.UPSTASH_REDIS_REST_TOKEN as string,
+    env.RATE_LIMIT_REDIS_TIMEOUT_MS,
+    'Upstash rate limit'
+  );
+
+  async increment(key: string, windowMs: number): Promise<RateLimitResult> {
+    const namespacedKey = `${env.RATE_LIMIT_REDIS_KEY_PREFIX}:${key}`;
+    const result = await this.client.command<[number, number]>([
+      'EVAL',
+      [
+        'local current = redis.call("INCR", KEYS[1])',
+        'if current == 1 then',
+        '  redis.call("PEXPIRE", KEYS[1], ARGV[1])',
+        'end',
+        'local ttl = redis.call("PTTL", KEYS[1])',
+        'return {current, ttl}'
+      ].join(' '),
+      '1',
+      namespacedKey,
+      String(windowMs)
+    ]);
+
+    if (!Array.isArray(result) || typeof result[0] !== 'number' || typeof result[1] !== 'number') {
+      throw new Error('Unexpected Upstash rate limit response');
+    }
+
+    return {
+      count: result[0],
+      retryAfterMs: Math.max(0, result[1])
+    };
+  }
+}
+
 class FallbackRateLimitStore implements RateLimitStore {
   constructor(
     private readonly primary: RateLimitStore,
@@ -437,6 +474,11 @@ const getRateLimitStore = () => {
 
   if (env.RATE_LIMIT_STORE === 'redis' && env.RATE_LIMIT_REDIS_URL) {
     store = new FallbackRateLimitStore(new RedisRateLimitStore(env.RATE_LIMIT_REDIS_URL), memoryStore);
+    return store;
+  }
+
+  if (env.RATE_LIMIT_STORE === 'upstash') {
+    store = new FallbackRateLimitStore(new UpstashRateLimitStore(), memoryStore);
     return store;
   }
 

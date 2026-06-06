@@ -2,9 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 import { env } from '../config/env';
 import { AppError } from '../utils/appError';
 import { logger } from '../utils/logger';
-import { StorageProvider } from './types';
+import { StorageBucketInfo, StorageProvider } from './types';
 
-const createStorageClient = () => {
+export const createStorageClient = () => {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new AppError(500, 'Supabase storage is not configured', 'STORAGE_NOT_CONFIGURED');
   }
@@ -36,14 +36,39 @@ const isNotFoundError = (statusCode: number | null, message: string | null) => {
   return statusCode === 404 || message?.toLowerCase().includes('not found') === true;
 };
 
-const ensureBucketExists = async (
+const isRetryableStorageFailure = (statusCode: number | null, message: string | null) => {
+  const normalizedMessage = message?.toLowerCase() ?? '';
+
+  return (
+    statusCode === null ||
+    statusCode === 408 ||
+    statusCode === 425 ||
+    statusCode === 429 ||
+    statusCode >= 500 ||
+    normalizedMessage.includes('fetch failed') ||
+    normalizedMessage.includes('network') ||
+    normalizedMessage.includes('timed out') ||
+    normalizedMessage.includes('timeout') ||
+    normalizedMessage.includes('socket')
+  );
+};
+
+type EnsureBucketOptions = {
+  allowCreate: boolean;
+};
+
+export const ensureSupabaseBucket = async (
   supabase: ReturnType<typeof createStorageClient>,
-  bucket: string
-) => {
+  bucket: string,
+  options: EnsureBucketOptions
+): Promise<StorageBucketInfo> => {
   const existing = await supabase.storage.getBucket(bucket);
 
   if (!existing.error) {
-    return;
+    return {
+      name: existing.data.name,
+      public: Boolean(existing.data.public)
+    };
   }
 
   const existingMessage = (existing.error as unknown as { message?: string }).message ?? null;
@@ -58,6 +83,10 @@ const ensureBucketExists = async (
       statusCode: existingStatusCode
     });
     throw new AppError(500, `Failed to verify storage bucket "${bucket}"`, 'STORAGE_BUCKET_LOOKUP_FAILED');
+  }
+
+  if (!options.allowCreate) {
+    throw new AppError(500, `Storage bucket "${bucket}" does not exist`, 'STORAGE_BUCKET_MISSING');
   }
 
   logger.warn('storage.supabase.bucket_missing_auto_create_attempt', {
@@ -84,14 +113,18 @@ const ensureBucketExists = async (
   }
 
   await sleep(250);
+  return {
+    name: bucket,
+    public: false
+  };
 };
 
 export const supabaseStorage: StorageProvider = {
-  async uploadEvidenceFile(bucket, filePath, body, contentType) {
+    async uploadEvidenceFile(bucket, filePath, body, contentType) {
     const supabase = createStorageClient();
 
     if (env.NODE_ENV !== 'production') {
-      await ensureBucketExists(supabase, bucket);
+      await ensureSupabaseBucket(supabase, bucket, { allowCreate: true });
     }
 
     const attemptUpload = async () => {
@@ -101,8 +134,30 @@ export const supabaseStorage: StorageProvider = {
       });
     };
 
+    // Start of change
     for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const { error } = await attemptUpload();
+      let uploadResult: Awaited<ReturnType<typeof attemptUpload>>;
+
+      try {
+        uploadResult = await attemptUpload();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('storage.supabase.upload_error_caught', {
+          bucket,
+          filePath,
+          message,
+          attempt
+        });
+
+        if (attempt < 3 && isRetryableStorageFailure(null, message)) {
+          await sleep(attempt * 500);
+          continue;
+        }
+
+        throw new AppError(500, `Failed to connect to storage: ${message}`, 'STORAGE_UPLOAD_FAILED');
+      }
+
+      const { error } = uploadResult;
 
       if (!error) {
         return;
@@ -122,8 +177,13 @@ export const supabaseStorage: StorageProvider = {
       });
 
       if (attempt < 3 && env.NODE_ENV !== 'production' && isNotFoundError(statusCode, message)) {
-        await ensureBucketExists(supabase, bucket);
+        await ensureSupabaseBucket(supabase, bucket, { allowCreate: true });
         await sleep(attempt * 250);
+        continue;
+      }
+
+      if (attempt < 3 && isRetryableStorageFailure(statusCode, message)) {
+        await sleep(attempt * 500);
         continue;
       }
 
@@ -131,8 +191,9 @@ export const supabaseStorage: StorageProvider = {
         throw new AppError(500, `Storage bucket "${bucket}" does not exist`, 'STORAGE_BUCKET_MISSING');
       }
 
-      throw new AppError(500, 'Failed to upload evidence file', 'STORAGE_UPLOAD_FAILED');
+      throw new AppError(500, 'Failed to upload evidence file to the bucket', 'STORAGE_UPLOAD_FAILED');
     }
+    // End of change
 
     throw new AppError(500, 'Failed to upload evidence file', 'STORAGE_UPLOAD_FAILED');
   },

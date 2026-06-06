@@ -14,11 +14,13 @@ import {
 } from '../utils/enums';
 import { logger } from '../utils/logger';
 import { accessService } from './accessService';
+import { cacheKeys } from '../helpers/cache/cacheKeys';
+import { cacheStore } from '../helpers/cache/cacheStore';
 
 // Type extension for stored evidence with thumbnails
 type StoredEvidence = {
   id: string;
-  evidence_type: 'photo' | 'video' | 'document' | 'receipt' | 'other';
+  evidence_type: 'photo' | 'video' | 'document';
   original_filename: string;
   content_type: string;
   size_bytes: number;
@@ -99,18 +101,25 @@ export type StoredSnapshotDossier = {
  * Simple in-memory cache for signed URLs to reduce overhead during dossier generation.
  * Key is filePath, value is the signed URL and expiry.
  */
-const signedUrlCache = new Map<string, { url: string; expiresAt: Date }>();
+const signedUrlCache = new Map<string, { url: string; expiresAt: string; cacheUntil: number }>();
 
 const getCachedSignedUrl = async (filePath: string) => {
   const cached = signedUrlCache.get(filePath);
-  // Return cached if it exists and won't expire in the next 5 minutes
-  if (cached && cached.expiresAt.getTime() > Date.now() + 5 * 60 * 1000) {
-    return cached;
+  if (cached && cached.cacheUntil > Date.now() && new Date(cached.expiresAt).getTime() > Date.now() + 30 * 1000) {
+    return {
+      url: cached.url,
+      expiresAt: cached.expiresAt
+    };
   }
 
   const signed = await storage.signEvidenceUrl(env.SUPABASE_STORAGE_BUCKET, filePath, env.SIGNED_URL_TTL_SECONDS);
-  
-  signedUrlCache.set(filePath, signed);
+  const signedExpiryMs = new Date(signed.expiresAt).getTime();
+  const cacheForMs = env.SIGNED_URL_CACHE_TTL_MINUTES * 60 * 1000;
+
+  signedUrlCache.set(filePath, {
+    ...signed,
+    cacheUntil: Math.min(signedExpiryMs - 30 * 1000, Date.now() + cacheForMs)
+  });
   return signed;
 };
 
@@ -163,6 +172,30 @@ const buildMilestones = (milestones: MilestoneList): StoredMilestone[] => {
     created_at: milestone.createdAt.toISOString(),
     updated_at: milestone.updatedAt.toISOString()
   }));
+};
+
+type SnapshotDossierBase = {
+  project: {
+    id: string;
+    title: string;
+  };
+  snapshot: {
+    id: string;
+    title: string;
+    created_at: string;
+    from_date: string | null;
+    to_date: string | null;
+  };
+  worker: {
+    name: string;
+    phone: string;
+    company: string | null;
+  };
+  reviewers: {
+    name: string;
+    phone: string;
+  }[];
+  milestones: StoredMilestone[];
 };
 
 const reviewersFromProject = (project: ProjectWithMembers) => {
@@ -248,6 +281,60 @@ const signMilestones = async (milestones: StoredMilestone[]) => {
   );
 };
 
+const buildSnapshotDossierBase = (payload: StoredSnapshotDossier): SnapshotDossierBase => {
+  return {
+    project: {
+      id: payload.header.project.id,
+      title: payload.header.project.title
+    },
+    snapshot: {
+      id: payload.header.snapshot.id,
+      title: payload.header.snapshot.title,
+      created_at: payload.header.snapshot.created_at,
+      from_date: payload.header.snapshot.from_date,
+      to_date: payload.header.snapshot.to_date
+    },
+    worker: {
+      name: payload.header.parties.owner.name,
+      phone: payload.header.parties.owner.phone,
+      company: payload.header.parties.owner.company ?? null
+    },
+    reviewers: payload.header.parties.reviewers.map((reviewer) => ({
+      name: reviewer.name,
+      phone: reviewer.phone
+    })),
+    milestones: sortMilestonesByDate(payload.milestones)
+  };
+};
+
+const getCachedProjectImmutablePayload = async (projectId: string, loader: () => Promise<StoredProjectDossier>) => {
+  const cached = await cacheStore.get<StoredProjectDossier>(cacheKeys.dossierProjectPayload(projectId));
+  if (cached) {
+    logger.debug('dossier.project_payload.cache_hit', {
+      projectId
+    });
+    return cached;
+  }
+
+  const payload = await loader();
+  await cacheStore.set(cacheKeys.dossierProjectPayload(projectId), payload, env.CACHE_DOSSIER_PAYLOAD_TTL_SECONDS);
+  return payload;
+};
+
+const getCachedSnapshotDossierBase = async (snapshotId: string, loader: () => Promise<StoredSnapshotDossier>) => {
+  const cached = await cacheStore.get<SnapshotDossierBase>(cacheKeys.dossierSnapshotBase(snapshotId));
+  if (cached) {
+    logger.debug('dossier.snapshot_payload.cache_hit', {
+      snapshotId
+    });
+    return cached;
+  }
+
+  const base = buildSnapshotDossierBase(await loader());
+  await cacheStore.set(cacheKeys.dossierSnapshotBase(snapshotId), base, env.CACHE_DOSSIER_PAYLOAD_TTL_SECONDS);
+  return base;
+};
+
 const getProjectOrThrow = async (projectId: string) => {
   const project = await projectRepository.findById(projectId);
   if (!project) {
@@ -262,39 +349,41 @@ const getProjectOrThrow = async (projectId: string) => {
 
 export const dossierService = {
   async buildProjectImmutablePayload(projectId: string): Promise<StoredProjectDossier> {
-    logger.info('dossier.project_payload.build_start', {
-      projectId
-    });
-    const project = await getProjectOrThrow(projectId);
-    const milestones = await milestoneRepository.listByProject(projectId);
+    return getCachedProjectImmutablePayload(projectId, async () => {
+      logger.info('dossier.project_payload.build_start', {
+        projectId
+      });
+      const project = await getProjectOrThrow(projectId);
+      const milestones = await milestoneRepository.listByProject(projectId);
 
-    logger.info('dossier.project_payload.build_loaded', {
-      projectId,
-      milestoneCount: milestones.length
-    });
-    return {
-      header: {
-        type: 'project',
-        project: {
-          id: project.id,
-          title: project.title,
-          description: project.description,
-          project_type: fromProjectType(project.projectType),
-          created_at: project.createdAt.toISOString()
-        },
-        parties: {
-          owner: {
-            id: project.owner.id,
-            name: project.owner.name,
-            phone: project.owner.phone,
-            company: project.owner.company
+      logger.info('dossier.project_payload.build_loaded', {
+        projectId,
+        milestoneCount: milestones.length
+      });
+      return {
+        header: {
+          type: 'project',
+          project: {
+            id: project.id,
+            title: project.title,
+            description: project.description,
+            project_type: fromProjectType(project.projectType),
+            created_at: project.createdAt.toISOString()
           },
-          reviewers: reviewersFromProject(project)
-        }
-      },
-      milestones: buildMilestones(milestones),
-      generated_at: new Date().toISOString()
-    };
+          parties: {
+            owner: {
+              id: project.owner.id,
+              name: project.owner.name,
+              phone: project.owner.phone,
+              company: project.owner.company
+            },
+            reviewers: reviewersFromProject(project)
+          }
+        },
+        milestones: buildMilestones(milestones),
+        generated_at: new Date().toISOString()
+      };
+    });
   },
 
   async projectDossier(projectId: string, userId: string) {
@@ -377,30 +466,11 @@ export const dossierService = {
       userId
     });
     const snapshot = await accessService.assertSnapshotAccess(snapshotId, userId);
-    const payload = snapshot.immutablePayload as StoredSnapshotDossier;
+    const base = await getCachedSnapshotDossierBase(snapshot.id, async () => snapshot.immutablePayload as StoredSnapshotDossier);
 
     return {
-      project: {
-        id: payload.header.project.id,
-        title: payload.header.project.title
-      },
-      snapshot: {
-        id: payload.header.snapshot.id,
-        title: payload.header.snapshot.title,
-        created_at: payload.header.snapshot.created_at,
-        from_date: payload.header.snapshot.from_date,
-        to_date: payload.header.snapshot.to_date
-      },
-      worker: {
-        name: payload.header.parties.owner.name,
-        phone: payload.header.parties.owner.phone,
-        company: payload.header.parties.owner.company ?? null
-      },
-      reviewers: payload.header.parties.reviewers.map((reviewer) => ({
-        name: reviewer.name,
-        phone: reviewer.phone
-      })),
-      milestones: await signMilestones(sortMilestonesByDate(payload.milestones)),
+      ...base,
+      milestones: await signMilestones(base.milestones),
       generated_at: new Date().toISOString()
     };
   },
@@ -417,30 +487,11 @@ export const dossierService = {
       throw new AppError(404, 'Snapshot not found', 'NOT_FOUND');
     }
 
-    const payload = snapshot.immutablePayload as StoredSnapshotDossier;
+    const base = await getCachedSnapshotDossierBase(snapshot.id, async () => snapshot.immutablePayload as StoredSnapshotDossier);
 
     return {
-      project: {
-        id: payload.header.project.id,
-        title: payload.header.project.title
-      },
-      snapshot: {
-        id: payload.header.snapshot.id,
-        title: payload.header.snapshot.title,
-        created_at: payload.header.snapshot.created_at,
-        from_date: payload.header.snapshot.from_date,
-        to_date: payload.header.snapshot.to_date
-      },
-      worker: {
-        name: payload.header.parties.owner.name,
-        phone: payload.header.parties.owner.phone,
-        company: payload.header.parties.owner.company ?? null
-      },
-      reviewers: payload.header.parties.reviewers.map((reviewer) => ({
-        name: reviewer.name,
-        phone: reviewer.phone
-      })),
-      milestones: await signMilestones(sortMilestonesByDate(payload.milestones)),
+      ...base,
+      milestones: await signMilestones(base.milestones),
       generated_at: new Date().toISOString()
     };
   }

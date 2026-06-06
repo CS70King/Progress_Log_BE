@@ -8,3 +8,8 @@ export type StorageProvider = {
   deleteEvidenceFile: (bucket: string, filePath: string) => Promise<void>;
   signEvidenceUrl: (bucket: string, filePath: string, ttlSeconds: number) => Promise<SignedUrlResult>;
 };
+
+export type StorageBucketInfo = {
+  name: string;
+  public: boolean;
+};

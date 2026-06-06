@@ -7,6 +7,9 @@ import { AppError } from '../utils/appError';
 import { logger } from '../utils/logger';
 import { generateShareToken } from '../utils/token';
 import { accessService } from './accessService';
+import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
+import { cacheKeys } from '../helpers/cache/cacheKeys';
+import { cacheStore } from '../helpers/cache/cacheStore';
 import { dossierService } from './dossierService';
 
 const buildExpiryDate = (hours: number) => {
@@ -25,10 +28,46 @@ const assertLinkMatchesResource = (
   return shareLink;
 };
 
+type ActiveShareLookup = {
+  id: string;
+  resourceType: ShareResourceType;
+  resourceId: string;
+  expiresAt: string | null;
+};
+
+const getShareLookupCacheTtlSeconds = (expiresAt: Date | null) => {
+  if (!expiresAt) {
+    return env.CACHE_SHARE_LOOKUP_TTL_SECONDS;
+  }
+
+  const remainingSeconds = Math.floor((expiresAt.getTime() - Date.now()) / 1000);
+  return Math.max(1, Math.min(env.CACHE_SHARE_LOOKUP_TTL_SECONDS, remainingSeconds));
+};
+
 const getActiveShareLink = async (token: string) => {
   logger.info('share.lookup.service.start', {
     tokenPrefix: token.slice(0, 8)
   });
+  const cacheKey = cacheKeys.shareLookup(token);
+  const cached = await cacheStore.get<ActiveShareLookup>(cacheKey);
+  if (cached) {
+    if (cached.expiresAt && new Date(cached.expiresAt).getTime() < Date.now()) {
+      await cacheStore.delete(cacheKey);
+      logger.warn('share.lookup.service.expired', {
+        shareLinkId: cached.id,
+        tokenPrefix: token.slice(0, 8)
+      });
+      throw new AppError(410, 'Share link has expired', 'GONE');
+    }
+
+    logger.debug('share.lookup.service.cache_hit', {
+      shareLinkId: cached.id,
+      resourceType: cached.resourceType,
+      resourceId: cached.resourceId
+    });
+    return cached;
+  }
+
   const shareLink = await shareLinkRepository.findByToken(token);
   if (!shareLink) {
     logger.warn('share.lookup.service.not_found', {
@@ -58,6 +97,16 @@ const getActiveShareLink = async (token: string) => {
     resourceType: shareLink.resourceType,
     resourceId: shareLink.resourceId
   });
+  await cacheStore.set<ActiveShareLookup>(
+    cacheKey,
+    {
+      id: shareLink.id,
+      resourceType: shareLink.resourceType,
+      resourceId: shareLink.resourceId,
+      expiresAt: shareLink.expiresAt?.toISOString() ?? null
+    },
+    getShareLookupCacheTtlSeconds(shareLink.expiresAt)
+  );
   return shareLink;
 };
 
@@ -153,6 +202,7 @@ export const shareService = {
     }
 
     const revokedShareLink = await shareLinkRepository.revoke(shareLinkId, new Date());
+    await cacheInvalidation.invalidateShareLookup(shareLink.token);
     logger.info('share.project_revoke.service.completed', {
       projectId,
       shareLinkId,
@@ -180,6 +230,7 @@ export const shareService = {
     }
 
     const revokedShareLink = await shareLinkRepository.revoke(shareLinkId, new Date());
+    await cacheInvalidation.invalidateShareLookup(shareLink.token);
     logger.info('share.snapshot_revoke.service.completed', {
       snapshotId,
       shareLinkId,

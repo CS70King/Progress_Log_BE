@@ -486,7 +486,7 @@ Content-Type: `multipart/form-data`
 
 Fields:
 
-- `evidence_type`: one of `photo | video | document | receipt | other`
+- `evidence_type`: one of `photo | video | document`
 - `files`: one or more files
 
 Limits:

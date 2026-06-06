@@ -1,3 +1,5 @@
+import { env } from '../config/env';
+
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 type LogFields = Record<string, unknown>;
@@ -9,7 +11,7 @@ const levels: Record<LogLevel, number> = {
   error: 40
 };
 
-const configuredLevel = (process.env.LOG_LEVEL as LogLevel | undefined) ?? 'info';
+const configuredLevel = env.LOG_LEVEL as LogLevel;
 
 const shouldLog = (level: LogLevel) => {
   return levels[level] >= levels[configuredLevel];
@@ -57,4 +59,3 @@ export const maskPhone = (phone?: string | null) => {
   const suffix = phone.slice(-4);
   return `***${suffix}`;
 };
-

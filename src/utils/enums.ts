@@ -32,24 +32,20 @@ export const fromProjectMemberRole = (value: ProjectMemberRole) =>
   value.toLowerCase() as 'owner' | 'reviewer';
 
 export const toEvidenceType = (
-  value: 'photo' | 'video' | 'document' | 'receipt' | 'other'
+  value: 'photo' | 'video' | 'document'
 ): EvidenceType => {
   switch (value) {
     case 'photo':
       return EvidenceType.PHOTO;
     case 'video':
       return EvidenceType.VIDEO;
-    case 'document':
-      return EvidenceType.DOCUMENT;
-    case 'receipt':
-      return EvidenceType.RECEIPT;
     default:
-      return EvidenceType.OTHER;
+      return EvidenceType.DOCUMENT;
   }
 };
 
 export const fromEvidenceType = (value: EvidenceType) =>
-  value.toLowerCase() as 'photo' | 'video' | 'document' | 'receipt' | 'other';
+  value === EvidenceType.PHOTO ? 'photo' : value === EvidenceType.VIDEO ? 'video' : 'document';
 
 export const fromMilestoneStatus = (value: MilestoneStatus) =>
   value.toLowerCase() as 'draft' | 'submitted' | 'approved' | 'needs_revision';

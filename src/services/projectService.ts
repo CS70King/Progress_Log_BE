@@ -11,7 +11,9 @@ import { AppError } from '../utils/appError';
 import { toProjectType } from '../utils/enums';
 import { logger, maskPhone } from '../utils/logger';
 import { env } from '../config/env';
+import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
+import { fromEvidenceType } from '../utils/enums';
 import { authService } from './authService';
 
 const getMilestoneInfo = async (projectId: string, role: UserRole) => {
@@ -110,7 +112,7 @@ const formatProjectDetails = async (project: Awaited<ReturnType<typeof projectRe
           })();
           return {
             id: item.id,
-            evidence_type: item.evidenceType.toLowerCase(),
+            evidence_type: fromEvidenceType(item.evidenceType),
             file_path: item.filePath,
             original_filename: item.originalFilename,
             content_type: item.contentType,
@@ -229,7 +231,7 @@ const formatProjectReviewerDetails = async (project: Awaited<ReturnType<typeof p
 
           return {
             id: item.id,
-            evidence_type: item.evidenceType.toLowerCase(),
+            evidence_type: fromEvidenceType(item.evidenceType),
             file_path: item.filePath,
             original_filename: item.originalFilename,
             content_type: item.contentType,
@@ -535,6 +537,7 @@ export const projectService = {
     }
 
     await projectRepository.updateState(projectId, ProjectState.COMPLETED);
+    await cacheInvalidation.invalidateProjectDossier(projectId);
     const project = await projectRepository.findById(projectId);
     return formatProjectDetails(project);
   },
@@ -561,6 +564,7 @@ export const projectService = {
     }
 
     await projectRepository.updateState(projectId, ProjectState.ABANDONED);
+    await cacheInvalidation.invalidateProjectDossier(projectId);
     const project = await projectRepository.findById(projectId);
     return formatProjectDetails(project);
   },
@@ -632,6 +636,7 @@ export const projectService = {
 
     await projectMemberRepository.create(projectId, reviewer.id, ProjectMemberRole.REVIEWER);
     await projectRepository.updateDedupeKey(projectId, dedupeKey);
+    await cacheInvalidation.invalidateProjectDossier(projectId);
 
     logger.info('project.invite_reviewer.service.created_membership', {
       projectId,

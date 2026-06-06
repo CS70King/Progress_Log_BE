@@ -1,6 +1,6 @@
 import { AppError } from './appError';
 
-type EvidenceTypeInput = 'photo' | 'video' | 'document' | 'receipt' | 'other';
+type EvidenceTypeInput = 'photo' | 'video' | 'document';
 
 const imageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const documentMimeTypes = new Set(['application/pdf']);
@@ -11,9 +11,7 @@ export const allowedUploadMimeTypes = new Set([...imageMimeTypes, ...documentMim
 const allowedMimeTypesByEvidenceType: Record<EvidenceTypeInput, Set<string>> = {
   photo: imageMimeTypes,
   video: videoMimeTypes,
-  document: documentMimeTypes,
-  receipt: new Set([...imageMimeTypes, ...documentMimeTypes]),
-  other: new Set([...imageMimeTypes, ...documentMimeTypes, ...videoMimeTypes])
+  document: documentMimeTypes
 };
 
 const hasSignature = (buffer: Buffer, signature: number[], offset = 0) => {

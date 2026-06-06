@@ -4,6 +4,7 @@ import { milestoneRepository } from '../repositories/milestoneRepository';
 import { AppError } from '../utils/appError';
 import { parseDateOnly } from '../utils/dates';
 import { logger } from '../utils/logger';
+import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
 import { UserRole } from '@prisma/client';
 import { env } from '../config/env';
@@ -70,6 +71,7 @@ export const milestoneService = {
       projectId,
       userId
     });
+    await cacheInvalidation.invalidateProjectDossier(projectId);
     return presentMilestone(milestone);
   },
 
@@ -201,6 +203,7 @@ export const milestoneService = {
       milestoneId,
       status: updatedMilestone.status
     });
+    await cacheInvalidation.invalidateProjectDossier(milestone.projectId);
     return presentMilestone(updatedMilestone);
   },
 
@@ -223,6 +226,7 @@ export const milestoneService = {
       previousStatus: milestone.status,
       nextStatus: updatedMilestone.status
     });
+    await cacheInvalidation.invalidateProjectDossier(milestone.projectId);
     return presentMilestone(updatedMilestone);
   }
 };
