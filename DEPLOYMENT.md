@@ -10,7 +10,7 @@ This backend is ready to deploy to Google Cloud Run using:
 - Supabase Postgres and Supabase Storage
 - Upstash Redis REST for cache and rate limiting
 
-This repo does not need a `Dockerfile` for the MVP deploy path. Cloud Run can build it directly from the GitHub repository with Node.js buildpacks. The runtime starts with `npm start`, which runs `dist/server.js`.
+This repo now includes a production `Dockerfile` for Cloud Build / Cloud Run continuous deployment from GitHub. The runtime starts with `npm start`, which runs `dist/src/server.js`.
 
 ## Runtime Facts For This Repo
 
@@ -240,14 +240,14 @@ Use these settings in the Cloud Run repo connection flow:
 
 - Repository provider: `GitHub`
 - Build system: `Cloud Build`
-- Build type: `Node.js via Google Cloud buildpacks`
+- Build type: `Dockerfile`
+- Dockerfile location: `Dockerfile`
 - Build context directory: `.`
-- Entrypoint: leave blank
 
-Leave the entrypoint blank because this repo already has a valid `start` script:
+The container starts through the npm start script:
 
 ```json
-"start": "node dist/server.js"
+"start": "node dist/src/server.js"
 ```
 
 ## Post-Deploy Verification
@@ -279,7 +279,7 @@ If a deploy is bad:
 
 ## Known Constraints
 
-- There is no Dockerfile in this repo, so the deploy path assumes buildpack support.
+- This repo uses the root-level `Dockerfile` for Cloud Build and Cloud Run deploys.
 - Staging and production depend on correct external configuration:
   - Supabase DB
   - Supabase Storage bucket

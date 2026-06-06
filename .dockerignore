@@ -1,0 +1,12 @@
+.git
+.github
+.env
+.env.*
+dist
+node_modules
+npm-debug.log
+README.md
+DEPLOYMENT.md
+postman
+docs
+supabase
