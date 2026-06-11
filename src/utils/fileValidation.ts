@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { AppError } from './appError';
 import JSZip from 'jszip';
 const WordExtractor = require('word-extractor');
@@ -15,6 +16,16 @@ const documentMimeTypes = new Set([
   'text/csv'
 ]);
 const videoMimeTypes = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
+const genericDocumentMimeTypes = new Set(['application/octet-stream', 'application/zip', 'application/x-zip-compressed']);
+const documentMimeTypeByExtension: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv'
+};
 
 export const allowedUploadMimeTypes = new Set([...imageMimeTypes, ...documentMimeTypes, ...videoMimeTypes]);
 
@@ -144,13 +155,46 @@ const detectMimeTypeFromBuffer = async (buffer: Buffer): Promise<string | null> 
   return null;
 };
 
+const inferDocumentMimeTypeFromFilename = (originalname: string) =>
+  documentMimeTypeByExtension[path.extname(originalname).toLowerCase()] ?? null;
+
+const normalizeDeclaredMimeType = (
+  file: Pick<Express.Multer.File, 'mimetype' | 'originalname'>,
+  evidenceType: EvidenceTypeInput
+) => {
+  if (evidenceType !== 'document') {
+    return file.mimetype;
+  }
+
+  if (documentMimeTypes.has(file.mimetype)) {
+    return file.mimetype;
+  }
+
+  if (genericDocumentMimeTypes.has(file.mimetype)) {
+    return inferDocumentMimeTypeFromFilename(file.originalname) ?? file.mimetype;
+  }
+
+  return file.mimetype;
+};
+
+export const canPassInitialUploadMimeGate = (
+  file: Pick<Express.Multer.File, 'mimetype' | 'originalname'>
+) => {
+  if (allowedUploadMimeTypes.has(file.mimetype)) {
+    return true;
+  }
+
+  return genericDocumentMimeTypes.has(file.mimetype) && inferDocumentMimeTypeFromFilename(file.originalname) !== null;
+};
+
 export const assertUploadedFileAllowed = async (
   file: Pick<Express.Multer.File, 'mimetype' | 'buffer' | 'originalname'>,
   evidenceType: EvidenceTypeInput
 ) => {
   const allowedMimeTypes = allowedMimeTypesByEvidenceType[evidenceType];
+  const declaredMimeType = normalizeDeclaredMimeType(file, evidenceType);
 
-  if (!allowedMimeTypes?.has(file.mimetype)) {
+  if (!allowedMimeTypes?.has(declaredMimeType)) {
     throw new AppError(
       400,
       `Unsupported file type "${file.mimetype}" for evidence type "${evidenceType}"`,
@@ -163,16 +207,16 @@ export const assertUploadedFileAllowed = async (
 
   const isAllowedDocumentAlias =
     evidenceType === 'document' &&
-    ((file.mimetype === 'text/csv' && detectedMimeType === 'text/plain') ||
-      (file.mimetype === 'application/vnd.ms-excel' &&
+    ((declaredMimeType === 'text/csv' && detectedMimeType === 'text/plain') ||
+      (declaredMimeType === 'application/vnd.ms-excel' &&
         (detectedMimeType === 'application/vnd.ms-excel' || detectedMimeType === 'text/plain')) ||
-      (file.mimetype === 'application/msword' && detectedMimeType === 'application/msword') ||
-      (textLikeDocumentMimeTypes.has(file.mimetype) && detectedMimeType === 'text/plain'));
+      (declaredMimeType === 'application/msword' && detectedMimeType === 'application/msword') ||
+      (textLikeDocumentMimeTypes.has(declaredMimeType) && detectedMimeType === 'text/plain'));
 
   if (
     !detectedMimeType ||
     (!allowedMimeTypes.has(detectedMimeType) && !isAllowedDocumentAlias) ||
-    (detectedMimeType !== file.mimetype && !isAllowedDocumentAlias)
+    (detectedMimeType !== declaredMimeType && !isAllowedDocumentAlias)
   ) {
     throw new AppError(
       400,

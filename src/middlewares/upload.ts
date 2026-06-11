@@ -2,7 +2,7 @@ import { RequestHandler } from 'express';
 import multer from 'multer';
 import { env } from '../config/env';
 import { AppError } from '../utils/appError';
-import { allowedUploadMimeTypes } from '../utils/fileValidation';
+import { canPassInitialUploadMimeGate } from '../utils/fileValidation';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -12,7 +12,7 @@ const upload = multer({
     fields: 10
   },
   fileFilter: (_req, file, callback) => {
-    if (!allowedUploadMimeTypes.has(file.mimetype)) {
+    if (!canPassInitialUploadMimeGate(file)) {
       callback(new AppError(400, `Unsupported file type "${file.mimetype}"`, 'UNSUPPORTED_FILE_TYPE'));
       return;
     }
