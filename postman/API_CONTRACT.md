@@ -1,6 +1,6 @@
 # Progress Log Backend API Contract
 
-Last updated: 2026-05-06
+Last updated: 2026-06-11
 
 Base URL (local dev): `http://localhost:3000`
 
@@ -258,11 +258,16 @@ Milestone items include:
 - `id`, `title`, `description`, `activity_date`, `state`, timestamps
 - `review` (decision + note + reviewer) when present
 - `evidence[]` with enhanced fields:
-  - `id`, `evidence_type`, `original_filename`, `content_type`, `size_bytes`
-  - `width`, `height` (image dimensions)
-  - `file_url`, `file_expires_at` (full-size signed URL)
+  - `id`, `project_id`, `milestone_id`, `uploader`, `evidence_type`, `file_path`
+  - `original_filename`, `content_type`, `size_bytes`, `width`, `height`, `created_at`
+  - `signed_url`, `signed_url_expires_at` (full-size signed URL)
   - `thumbnail_path`, `thumbnail_size_bytes`, `thumbnail_width`, `thumbnail_height`
-  - `thumbnail_url`, `thumbnail_expires_at` (thumbnail signed URL)
+  - `thumbnail_signed_url`, `thumbnail_signed_url_expires_at` (thumbnail signed URL)
+
+Note:
+
+- Standard project and milestone fetches use `signed_url` / `thumbnail_signed_url`.
+- Dossier payloads keep the older `file_url` / `thumbnail_url` field names for compatibility.
 
 ### POST `/projects/:projectId/invite-reviewer`
 
@@ -364,8 +369,8 @@ Auth required (owner or member).
 Returns an array of milestone objects:
 
 - `status` is role-mapped: reviewers see `pending_review` instead of `submitted`.
-- Each milestone includes `review` (if present) and `evidence` (metadata only; no signed URLs here unless returned by evidence upload).
-- Evidence items include thumbnail fields: `width`, `height`, `thumbnail_path`, `thumbnail_size_bytes`, `thumbnail_width`, `thumbnail_height`, `thumbnail_url`, `thumbnail_expires_at`.
+- Each milestone includes `review` (if present) and `evidence` with signed access URLs.
+- Evidence items include `signed_url`, `signed_url_expires_at`, `width`, `height`, `thumbnail_path`, `thumbnail_size_bytes`, `thumbnail_width`, `thumbnail_height`, `thumbnail_signed_url`, `thumbnail_signed_url_expires_at`.
 
 ### GET `/milestones/:milestoneId`
 
@@ -390,6 +395,15 @@ Response `data`:
   "evidence_items": [
     {
       "id": "evidence-uuid",
+      "project_id": "project-uuid",
+      "milestone_id": "milestone-uuid",
+      "uploader": {
+        "id": "user-uuid",
+        "name": "Worker Name",
+        "phone": "+15555550101",
+        "country": "Ghana",
+        "company": "Build Co"
+      },
       "evidence_type": "photo",
       "original_filename": "photo.jpg",
       "file_path": "projects/uuid/milestones/uuid/file.jpg",
@@ -404,8 +418,8 @@ Response `data`:
       "thumbnail_size_bytes": 15000,
       "thumbnail_width": 300,
       "thumbnail_height": 300,
-      "thumbnail_url": "https://supabase-url/thumb-signed-url",
-      "thumbnail_expires_at": "2026-05-06T12:00:00.000Z"
+      "thumbnail_signed_url": "https://supabase-url/thumb-signed-url",
+      "thumbnail_signed_url_expires_at": "2026-05-06T12:00:00.000Z"
     }
   ],
   "review": { /* milestone review or null */ }
@@ -519,8 +533,8 @@ Response `data` is grouped to avoid repetition:
       "thumbnail_size_bytes": 15000,
       "thumbnail_width": 300,
       "thumbnail_height": 300,
-      "thumbnail_url": "http://... (thumbnail signed URL)",
-      "thumbnail_expires_at": "ISO"
+      "thumbnail_signed_url": "http://... (thumbnail signed URL)",
+      "thumbnail_signed_url_expires_at": "ISO"
     }
   ]
 }
@@ -531,7 +545,7 @@ Notes:
 - `file_path` is the stable storage key stored in the DB.
 - `signed_url` is generated on demand and expires; it may be `null` if the underlying storage object is missing.
 - `thumbnail_path` is the stable storage key for the thumbnail image.
-- `thumbnail_url` is generated on demand and expires; may be `null` if thumbnail is missing.
+- `thumbnail_signed_url` is generated on demand and expires; may be `null` if thumbnail is missing.
 - `width`/`height` are the original image dimensions (available for images only).
 - `thumbnail_width`/`thumbnail_height` are always 300x300 for generated thumbnails.
 

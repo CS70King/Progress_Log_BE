@@ -6,15 +6,13 @@ import { projectMemberRepository } from '../repositories/projectMemberRepository
 import { projectRepository } from '../repositories/projectRepository';
 import { snapshotRepository } from '../repositories/snapshotRepository';
 import { userRepository } from '../repositories/userRepository';
-import { storage } from '../storage';
 import { AppError } from '../utils/appError';
 import { toProjectType } from '../utils/enums';
 import { logger, maskPhone } from '../utils/logger';
-import { env } from '../config/env';
 import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
-import { fromEvidenceType } from '../utils/enums';
 import { authService } from './authService';
+import { presentEvidenceItemWithSignedUrls } from '../utils/evidenceResponse';
 
 const getMilestoneInfo = async (projectId: string, role: UserRole) => {
   const milestones = await prisma.milestone.groupBy({
@@ -92,45 +90,16 @@ const formatProjectDetails = async (project: Awaited<ReturnType<typeof projectRe
   const milestonesWithEvidenceUrls = await Promise.all(
     milestones.map(async (milestone) => {
       const evidence = await Promise.all(
-        milestone.evidenceItems.map(async (item) => {
-          const signed = await (async () => {
-            try {
-              return await storage.signEvidenceUrl(
-                env.SUPABASE_STORAGE_BUCKET,
-                item.filePath,
-                env.SIGNED_URL_TTL_SECONDS
-              );
-            } catch (error) {
-              logger.warn('project.get.service.evidence_sign_failed', {
-                projectId: project.id,
-                milestoneId: milestone.id,
-                evidenceId: item.id,
-                filePath: item.filePath
-              });
-              return null;
+        milestone.evidenceItems.map((item) =>
+          presentEvidenceItemWithSignedUrls(item, {
+            signErrorEvent: 'project.get.service.evidence_sign_failed',
+            thumbnailSignErrorEvent: 'project.get.service.thumbnail_sign_failed',
+            context: {
+              projectId: project.id,
+              milestoneId: milestone.id
             }
-          })();
-          return {
-            id: item.id,
-            evidence_type: fromEvidenceType(item.evidenceType),
-            file_path: item.filePath,
-            original_filename: item.originalFilename,
-            content_type: item.contentType,
-            size_bytes: Number(item.sizeBytes),
-            created_at: item.createdAt.toISOString(),
-            uploader: item.uploader
-              ? {
-                  id: item.uploader.id,
-                  name: item.uploader.name,
-                  phone: item.uploader.phone,
-                  country: item.uploader.country,
-                  company: item.uploader.company
-                }
-              : null,
-            signed_url: signed?.url ?? null,
-            signed_url_expires_at: signed?.expiresAt ?? null
-          };
-        })
+          })
+        )
       );
 
       return {
@@ -210,46 +179,16 @@ const formatProjectReviewerDetails = async (project: Awaited<ReturnType<typeof p
   const milestonesWithEvidenceUrls = await Promise.all(
     visibleMilestones.map(async (milestone) => {
       const evidence = await Promise.all(
-        milestone.evidenceItems.map(async (item) => {
-          const signed = await (async () => {
-            try {
-              return await storage.signEvidenceUrl(
-                env.SUPABASE_STORAGE_BUCKET,
-                item.filePath,
-                env.SIGNED_URL_TTL_SECONDS
-              );
-            } catch (_error) {
-              logger.warn('project.get.reviewer.evidence_sign_failed', {
-                projectId: project.id,
-                milestoneId: milestone.id,
-                evidenceId: item.id,
-                filePath: item.filePath
-              });
-              return null;
+        milestone.evidenceItems.map((item) =>
+          presentEvidenceItemWithSignedUrls(item, {
+            signErrorEvent: 'project.get.reviewer.evidence_sign_failed',
+            thumbnailSignErrorEvent: 'project.get.reviewer.thumbnail_sign_failed',
+            context: {
+              projectId: project.id,
+              milestoneId: milestone.id
             }
-          })();
-
-          return {
-            id: item.id,
-            evidence_type: fromEvidenceType(item.evidenceType),
-            file_path: item.filePath,
-            original_filename: item.originalFilename,
-            content_type: item.contentType,
-            size_bytes: Number(item.sizeBytes),
-            created_at: item.createdAt.toISOString(),
-            uploader: item.uploader
-              ? {
-                  id: item.uploader.id,
-                  name: item.uploader.name,
-                  phone: item.uploader.phone,
-                  country: item.uploader.country,
-                  company: item.uploader.company
-                }
-              : null,
-            signed_url: signed?.url ?? null,
-            signed_url_expires_at: signed?.expiresAt ?? null
-          };
-        })
+          })
+        )
       );
 
       return {

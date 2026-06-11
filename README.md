@@ -149,8 +149,23 @@ Server behavior:
 
 - Stores only `file_path` in Postgres.
 - Upload path format is `projects/{projectId}/milestones/{milestoneId}/{evidenceItemId}-{safeFilename}`.
-- Generates signed URLs on dossier reads.
+- Generates signed URLs on dossier reads and standard project/milestone evidence fetches.
 - Uses `SUPABASE_SERVICE_ROLE_KEY` only on the server.
+
+Evidence response behavior:
+
+- `GET /projects/:projectId`
+- `GET /projects/:projectId/milestones`
+- `GET /milestones/:milestoneId`
+- `POST /milestones/:milestoneId/evidence`
+
+These responses include:
+
+- `signed_url` and `signed_url_expires_at` for the original file
+- `thumbnail_path`, `thumbnail_size_bytes`, `thumbnail_width`, `thumbnail_height`
+- `thumbnail_signed_url` and `thumbnail_signed_url_expires_at` when a thumbnail exists
+
+The dossier endpoints keep `file_url` and `thumbnail_url` naming in their report payloads.
 
 Recommended bucket setup:
 

@@ -10,6 +10,7 @@ import { toEvidenceType } from '../utils/enums';
 import { assertUploadedFileAllowed } from '../utils/fileValidation';
 import { logger } from '../utils/logger';
 import { sanitizeFilename } from '../utils/strings';
+import { presentEvidenceItemWithSignedUrls } from '../utils/evidenceResponse';
 import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
 import { fileScanService } from './fileScanService';
@@ -256,32 +257,16 @@ export const evidenceService = {
           filePath
         });
 
-        let signedUrl: string | null = null;
-        let signedUrlExpiresAt: string | null = null;
-
-        try {
-          const signed = await storage.signEvidenceUrl(
-            env.SUPABASE_STORAGE_BUCKET,
-            filePath,
-            env.SIGNED_URL_TTL_SECONDS
-          );
-          signedUrl = signed.url;
-          signedUrlExpiresAt = signed.expiresAt;
-        } catch (error) {
-          logger.warn('evidence.upload.service.sign_failed', {
-            evidenceId: record.id,
-            milestoneId: milestone.id,
-            projectId: milestone.projectId,
-            filePath,
-            error: formatUnknownError(error)
-          });
-        }
-
-        items.push({
-          ...presentEvidenceItem(record),
-          signed_url: signedUrl,
-          signed_url_expires_at: signedUrlExpiresAt
-        });
+        items.push(
+          await presentEvidenceItemWithSignedUrls(record, {
+            signErrorEvent: 'evidence.upload.service.sign_failed',
+            thumbnailSignErrorEvent: 'evidence.upload.service.thumbnail_sign_failed',
+            context: {
+              milestoneId: milestone.id,
+              projectId: milestone.projectId
+            }
+          })
+        );
         projectChanged = true;
       }
     } finally {

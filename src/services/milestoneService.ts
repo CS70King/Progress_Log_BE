@@ -1,5 +1,5 @@
 import { MilestoneStatus, ProjectState } from '@prisma/client';
-import { presentEvidenceItem, presentMilestone, presentMilestoneReview } from '../models/presenters';
+import { presentMilestone, presentMilestoneReview } from '../models/presenters';
 import { milestoneRepository } from '../repositories/milestoneRepository';
 import { AppError } from '../utils/appError';
 import { parseDateOnly } from '../utils/dates';
@@ -7,9 +7,7 @@ import { logger } from '../utils/logger';
 import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
 import { UserRole } from '@prisma/client';
-import { env } from '../config/env';
-import { storage } from '../storage';
-import { fromEvidenceType } from '../utils/enums';
+import { presentEvidenceItemWithSignedUrls } from '../utils/evidenceResponse';
 
 const editableMilestoneStatuses: MilestoneStatus[] = [MilestoneStatus.DRAFT, MilestoneStatus.NEEDS_REVISION];
 
@@ -88,16 +86,27 @@ export const milestoneService = {
       userId,
       count: milestones.length
     });
-    return milestones.map((milestone) => {
+    return Promise.all(milestones.map(async (milestone) => {
       const presented = presentMilestone(milestone);
       const status = role === UserRole.REVIEWER && presented.status === 'submitted' ? 'pending_review' : presented.status;
       return {
         ...presented,
         status,
-      review: milestone.review ? presentMilestoneReview(milestone.review) : null,
-      evidence: milestone.evidenceItems.map((item) => presentEvidenceItem(item))
+        review: milestone.review ? presentMilestoneReview(milestone.review) : null,
+        evidence: await Promise.all(
+          milestone.evidenceItems.map((item) =>
+            presentEvidenceItemWithSignedUrls(item, {
+              signErrorEvent: 'milestone.list.service.evidence_sign_failed',
+              thumbnailSignErrorEvent: 'milestone.list.service.thumbnail_sign_failed',
+              context: {
+                projectId,
+                milestoneId: milestone.id
+              }
+            })
+          )
+        )
       };
-    });
+    }));
   },
 
   async getMilestone(milestoneId: string, userId: string, role: UserRole) {
@@ -110,49 +119,17 @@ export const milestoneService = {
     const presented = presentMilestone(milestone);
     const status = role === UserRole.REVIEWER && presented.status === 'submitted' ? 'pending_review' : presented.status;
 
-    // Generate signed URLs for evidence items
     const evidenceItems = await Promise.all(
-      milestone.evidenceItems.map(async (item) => {
-        const signed = await (async () => {
-          try {
-            return await storage.signEvidenceUrl(
-              env.SUPABASE_STORAGE_BUCKET,
-              item.filePath,
-              env.SIGNED_URL_TTL_SECONDS
-            );
-          } catch (error) {
-            logger.warn('milestone.get.service.evidence_sign_failed', {
-              milestoneId,
-              evidenceId: item.id,
-              filePath: item.filePath
-            });
-            return null;
+      milestone.evidenceItems.map((item) =>
+        presentEvidenceItemWithSignedUrls(item, {
+          signErrorEvent: 'milestone.get.service.evidence_sign_failed',
+          thumbnailSignErrorEvent: 'milestone.get.service.thumbnail_sign_failed',
+          context: {
+            milestoneId,
+            projectId: milestone.projectId
           }
-        })();
-
-        return {
-          id: item.id,
-          project_id: item.projectId,
-          milestone_id: item.milestoneId,
-          uploader: item.uploader
-            ? {
-                id: item.uploader.id,
-                name: item.uploader.name,
-                phone: item.uploader.phone,
-                country: item.uploader.country,
-                company: item.uploader.company
-              }
-            : null,
-          evidence_type: fromEvidenceType(item.evidenceType),
-          file_path: item.filePath,
-          original_filename: item.originalFilename,
-          content_type: item.contentType,
-          size_bytes: Number(item.sizeBytes),
-          created_at: item.createdAt.toISOString(),
-          signed_url: signed?.url ?? null,
-          signed_url_expires_at: signed?.expiresAt ?? null
-        };
-      })
+        })
+      )
     );
 
     return {
