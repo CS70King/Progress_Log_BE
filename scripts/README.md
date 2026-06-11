@@ -41,7 +41,7 @@ Notes:
 - Use `db:wipe` or `db:wipe:staging` first when you want a clean reseed.
 - Production preserves existing rows and only adds seed data after confirmation.
 - Seeded evidence includes a real mix of photos, videos, and files.
-- Seeded photos and videos are uploaded with generated thumbnails.
+- Seeded photos, videos, and PDF documents are uploaded with generated thumbnails.
 - Production seeding requires a ready bucket. Run `npm run storage:setup:production` first.
 
 ### 2. `storageSetup.ts`

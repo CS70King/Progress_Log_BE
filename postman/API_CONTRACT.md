@@ -503,6 +503,12 @@ Fields:
 - `evidence_type`: one of `photo | video | document`
 - `files`: one or more files
 
+Supported upload MIME types:
+
+- `photo`: `image/jpeg`, `image/png`, `image/webp`, `image/gif`
+- `video`: `video/mp4`, `video/quicktime`, `video/webm`
+- `document`: `application/pdf`, `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`, `application/vnd.ms-excel`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `text/plain`, `text/csv`
+
 Limits:
 
 - Max 20 files per request
@@ -548,6 +554,7 @@ Notes:
 - `thumbnail_signed_url` is generated on demand and expires; may be `null` if thumbnail is missing.
 - `width`/`height` are the original media dimensions when metadata extraction succeeds.
 - `thumbnail_width`/`thumbnail_height` are always 300x300 for generated thumbnails.
+- For documents, the thumbnail is a content preview of page/content 1 rather than a downloadable second file type in the original format.
 
 ### DELETE `/evidence/:evidenceId`
 

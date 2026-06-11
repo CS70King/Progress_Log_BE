@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 import { env } from '../src/config/env';
 import { prisma } from '../src/db/prisma';
+import { DocumentPreviewService } from '../src/services/documentPreviewService';
 import { ImageService } from '../src/services/imageService';
 import { VideoThumbnailService } from '../src/services/videoThumbnailService';
 import { createStorageClient, ensureSupabaseBucket } from '../src/storage/supabaseStorage';
@@ -365,7 +366,9 @@ const createSeedEvidence = async (input: {
   const baseName = asset.originalFilename;
   const filePath = `projects/${input.projectId}/milestones/${input.milestoneId}/${evidenceId}-${baseName}`;
   const thumbnailPath =
-    asset.contentType.startsWith('image/') || asset.contentType.startsWith('video/')
+    asset.contentType.startsWith('image/') ||
+    asset.contentType.startsWith('video/') ||
+    asset.contentType === 'application/pdf'
       ? ImageService.getThumbnailPath(filePath)
       : undefined;
   let width: number | undefined;
@@ -395,6 +398,15 @@ const createSeedEvidence = async (input: {
     thumbnailSize = BigInt(videoThumbnail.thumbnail.size);
     thumbnailWidth = videoThumbnail.thumbnail.width;
     thumbnailHeight = videoThumbnail.thumbnail.height;
+  } else if (asset.contentType === 'application/pdf') {
+    const documentThumbnail = await DocumentPreviewService.generateThumbnail(asset.buffer, {
+      contentType: asset.contentType,
+      originalFilename: asset.originalFilename
+    });
+    thumbnailBuffer = documentThumbnail.buffer;
+    thumbnailSize = BigInt(documentThumbnail.size);
+    thumbnailWidth = documentThumbnail.width;
+    thumbnailHeight = documentThumbnail.height;
   }
 
   await storage.uploadEvidenceFile(env.SUPABASE_STORAGE_BUCKET, filePath, asset.buffer, asset.contentType);

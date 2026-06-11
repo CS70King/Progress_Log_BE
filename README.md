@@ -165,6 +165,12 @@ These responses include:
 - `thumbnail_path`, `thumbnail_size_bytes`, `thumbnail_width`, `thumbnail_height`
 - `thumbnail_signed_url` and `thumbnail_signed_url_expires_at` when a thumbnail exists
 
+Thumbnail generation coverage:
+
+- photos: generated from the original image
+- videos: generated from a captured frame
+- documents: generated for `pdf`, `doc`, `docx`, `xls`, `xlsx`, `txt`, and `csv`
+
 The dossier endpoints keep `file_url` and `thumbnail_url` naming in their report payloads.
 
 Recommended bucket setup:
@@ -211,7 +217,7 @@ Commands:
 Seed behavior:
 
 - Seeded image evidence is downloaded, uploaded to storage, and stored with real file paths.
-- Seeded photo and video thumbnails are generated and uploaded alongside the originals.
+- Seeded photo, video, and PDF document thumbnails are generated and uploaded alongside the originals.
 - `development` and `staging` auto-create the bucket if it does not exist.
 - `production` expects the bucket to already exist.
 - The seed is non-destructive and skips entirely if either demo seed user already exists.

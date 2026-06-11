@@ -13,6 +13,7 @@ import { sanitizeFilename } from '../utils/strings';
 import { presentEvidenceItemWithSignedUrls } from '../utils/evidenceResponse';
 import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
+import { DocumentPreviewService } from './documentPreviewService';
 import { fileScanService } from './fileScanService';
 import { ImageService } from './imageService';
 import { VideoThumbnailService } from './videoThumbnailService';
@@ -122,7 +123,7 @@ export const evidenceService = {
 
     try {
       for (const file of files) {
-        assertUploadedFileAllowed(file, input.evidence_type);
+        await assertUploadedFileAllowed(file, input.evidence_type);
         await fileScanService.assertFileIsClean(file, input.evidence_type);
 
         const id = crypto.randomUUID();
@@ -189,6 +190,32 @@ export const evidenceService = {
           } catch (error) {
             logger.warn('evidence.upload.service.video_thumbnail_generation_failed', {
               evidenceId: id,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+        } else if (input.evidence_type === 'document') {
+          try {
+            const documentThumbnail = await DocumentPreviewService.generateThumbnail(file.buffer, {
+              contentType: file.mimetype,
+              originalFilename: file.originalname
+            });
+
+            thumbnailPath = ImageService.getThumbnailPath(filePath);
+            thumbnailSize = BigInt(documentThumbnail.size);
+            thumbnailWidth = documentThumbnail.width;
+            thumbnailHeight = documentThumbnail.height;
+            thumbnailBuffer = documentThumbnail.buffer;
+
+            logger.info('evidence.upload.service.document_thumbnail_generated', {
+              evidenceId: id,
+              thumbnailPath,
+              thumbnailSize: documentThumbnail.size,
+              contentType: file.mimetype
+            });
+          } catch (error) {
+            logger.warn('evidence.upload.service.document_thumbnail_generation_failed', {
+              evidenceId: id,
+              contentType: file.mimetype,
               error: error instanceof Error ? error.message : 'Unknown error'
             });
           }
