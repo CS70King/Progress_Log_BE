@@ -15,6 +15,7 @@ import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
 import { fileScanService } from './fileScanService';
 import { ImageService } from './imageService';
+import { VideoThumbnailService } from './videoThumbnailService';
 
 const mutableEvidenceStatuses: MilestoneStatus[] = [MilestoneStatus.DRAFT, MilestoneStatus.NEEDS_REVISION];
 
@@ -161,6 +162,32 @@ export const evidenceService = {
             }
           } catch (error) {
             logger.warn('evidence.upload.service.thumbnail_generation_failed', {
+              evidenceId: id,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+        } else if (file.mimetype.startsWith('video/')) {
+          try {
+            const videoThumbnail = await VideoThumbnailService.generateThumbnail(file.buffer, {
+              contentType: file.mimetype,
+              originalFilename: file.originalname
+            });
+
+            width = videoThumbnail.width;
+            height = videoThumbnail.height;
+            thumbnailPath = ImageService.getThumbnailPath(filePath);
+            thumbnailSize = BigInt(videoThumbnail.thumbnail.size);
+            thumbnailWidth = videoThumbnail.thumbnail.width;
+            thumbnailHeight = videoThumbnail.thumbnail.height;
+            thumbnailBuffer = videoThumbnail.thumbnail.buffer;
+
+            logger.info('evidence.upload.service.video_thumbnail_generated', {
+              evidenceId: id,
+              thumbnailPath,
+              thumbnailSize: videoThumbnail.thumbnail.size
+            });
+          } catch (error) {
+            logger.warn('evidence.upload.service.video_thumbnail_generation_failed', {
               evidenceId: id,
               error: error instanceof Error ? error.message : 'Unknown error'
             });

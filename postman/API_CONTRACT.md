@@ -546,7 +546,7 @@ Notes:
 - `signed_url` is generated on demand and expires; it may be `null` if the underlying storage object is missing.
 - `thumbnail_path` is the stable storage key for the thumbnail image.
 - `thumbnail_signed_url` is generated on demand and expires; may be `null` if thumbnail is missing.
-- `width`/`height` are the original image dimensions (available for images only).
+- `width`/`height` are the original media dimensions when metadata extraction succeeds.
 - `thumbnail_width`/`thumbnail_height` are always 300x300 for generated thumbnails.
 
 ### DELETE `/evidence/:evidenceId`

@@ -211,7 +211,7 @@ Commands:
 Seed behavior:
 
 - Seeded image evidence is downloaded, uploaded to storage, and stored with real file paths.
-- Seeded thumbnails are generated and uploaded alongside the originals.
+- Seeded photo and video thumbnails are generated and uploaded alongside the originals.
 - `development` and `staging` auto-create the bucket if it does not exist.
 - `production` expects the bucket to already exist.
 - The seed is non-destructive and skips entirely if either demo seed user already exists.

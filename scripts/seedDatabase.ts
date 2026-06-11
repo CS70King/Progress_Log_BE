@@ -15,6 +15,7 @@ import {
 import { env } from '../src/config/env';
 import { prisma } from '../src/db/prisma';
 import { ImageService } from '../src/services/imageService';
+import { VideoThumbnailService } from '../src/services/videoThumbnailService';
 import { createStorageClient, ensureSupabaseBucket } from '../src/storage/supabaseStorage';
 import { storage, storageDriver } from '../src/storage';
 import { hashPassword } from '../src/utils/password';
@@ -349,7 +350,7 @@ const buildEvidencePlan = (count: number) => {
   return planned.sort(() => Math.random() - 0.5);
 };
 
-const createImageEvidence = async (input: {
+const createSeedEvidence = async (input: {
   projectId: string;
   milestoneId: string;
   workerId: string;
@@ -363,7 +364,10 @@ const createImageEvidence = async (input: {
   const evidenceId = crypto.randomUUID();
   const baseName = asset.originalFilename;
   const filePath = `projects/${input.projectId}/milestones/${input.milestoneId}/${evidenceId}-${baseName}`;
-  const thumbnailPath = asset.contentType.startsWith('image/') ? ImageService.getThumbnailPath(filePath) : undefined;
+  const thumbnailPath =
+    asset.contentType.startsWith('image/') || asset.contentType.startsWith('video/')
+      ? ImageService.getThumbnailPath(filePath)
+      : undefined;
   let width: number | undefined;
   let height: number | undefined;
   let thumbnailSize: bigint | undefined;
@@ -380,6 +384,17 @@ const createImageEvidence = async (input: {
     thumbnailSize = BigInt(thumbnail.size);
     thumbnailWidth = thumbnail.width;
     thumbnailHeight = thumbnail.height;
+  } else if (asset.contentType.startsWith('video/')) {
+    const videoThumbnail = await VideoThumbnailService.generateThumbnail(asset.buffer, {
+      contentType: asset.contentType,
+      originalFilename: asset.originalFilename
+    });
+    width = videoThumbnail.width;
+    height = videoThumbnail.height;
+    thumbnailBuffer = videoThumbnail.thumbnail.buffer;
+    thumbnailSize = BigInt(videoThumbnail.thumbnail.size);
+    thumbnailWidth = videoThumbnail.thumbnail.width;
+    thumbnailHeight = videoThumbnail.thumbnail.height;
   }
 
   await storage.uploadEvidenceFile(env.SUPABASE_STORAGE_BUCKET, filePath, asset.buffer, asset.contentType);
@@ -506,7 +521,7 @@ const createProjectWithMilestones = async (
     const evidencePlan = buildEvidencePlan(evidenceCount);
     for (let evidenceIndex = 0; evidenceIndex < evidencePlan.length; evidenceIndex += 1) {
       const evidenceType = evidencePlan[evidenceIndex];
-      await createImageEvidence({
+      await createSeedEvidence({
         projectId: project.id,
         milestoneId: milestone.id,
         workerId,
