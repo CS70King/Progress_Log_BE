@@ -22,6 +22,7 @@ Progress Log is a milestone-based backend for recording project progress, upload
 - `GET /projects/:projectId`
 - `POST /projects/:projectId/invite-reviewer`
 - `POST /projects/:projectId/milestones`
+- `POST /projects/:projectId/milestones/with-evidence`
 - `GET /projects/:projectId/milestones`
 - `GET /milestones/:milestoneId`
 - `PATCH /milestones/:milestoneId`
@@ -178,6 +179,12 @@ Document preview behavior:
 - if LibreOffice is unavailable or conversion fails, the backend falls back to a content-based preview image for those non-PDF document formats
 
 The dossier endpoints keep `file_url` and `thumbnail_url` naming in their report payloads.
+
+Atomicity notes:
+
+- `POST /milestones/:milestoneId/evidence` is all-or-nothing for the full batch. If any file in the request fails validation, scanning, thumbnailing, storage upload, or DB persistence, the backend rolls back every evidence item created by that request.
+- `POST /projects/:projectId/milestones/with-evidence` creates a milestone and its first evidence batch atomically. If the evidence step fails, the new milestone is deleted.
+- `POST /projects/:projectId/milestones` followed later by `POST /milestones/:milestoneId/evidence` are still two separate HTTP requests, so they are not cross-request atomic by design.
 
 Recommended bucket setup:
 

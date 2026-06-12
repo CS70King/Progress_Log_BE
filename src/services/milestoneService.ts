@@ -8,6 +8,7 @@ import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
 import { UserRole } from '@prisma/client';
 import { presentEvidenceItemWithSignedUrls } from '../utils/evidenceResponse';
+import { evidenceService } from './evidenceService';
 
 const editableMilestoneStatuses: MilestoneStatus[] = [MilestoneStatus.DRAFT, MilestoneStatus.NEEDS_REVISION];
 
@@ -29,6 +30,48 @@ const ensureProjectActive = (projectState: ProjectState) => {
   }
 };
 
+const createMilestoneRecord = async (
+  projectId: string,
+  userId: string,
+  input: {
+    title: string;
+    description: string;
+    activity_date: string;
+    tags?: string[];
+  }
+) => {
+  const project = await accessService.assertProjectOwner(projectId, userId);
+  ensureProjectActive(project.state);
+
+  return milestoneRepository.create({
+    project: {
+      connect: {
+        id: projectId
+      }
+    },
+    creator: {
+      connect: {
+        id: userId
+      }
+    },
+    title: input.title,
+    description: input.description,
+    activityDate: parseDateOnly(input.activity_date)
+  });
+};
+
+const deleteMilestoneQuietly = async (milestoneId: string, projectId: string) => {
+  try {
+    await milestoneRepository.delete(milestoneId);
+  } catch (error) {
+    logger.warn('milestone.cleanup.delete_failed', {
+      milestoneId,
+      projectId,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
 export const milestoneService = {
   async createMilestone(
     projectId: string,
@@ -45,24 +88,7 @@ export const milestoneService = {
       userId,
       activityDate: input.activity_date
     });
-    const project = await accessService.assertProjectOwner(projectId, userId);
-    ensureProjectActive(project.state);
-
-    const milestone = await milestoneRepository.create({
-      project: {
-        connect: {
-          id: projectId
-        }
-      },
-      creator: {
-        connect: {
-          id: userId
-        }
-      },
-      title: input.title,
-      description: input.description,
-      activityDate: parseDateOnly(input.activity_date)
-    });
+    const milestone = await createMilestoneRecord(projectId, userId, input);
 
     logger.info('milestone.create.service.created', {
       milestoneId: milestone.id,
@@ -71,6 +97,60 @@ export const milestoneService = {
     });
     await cacheInvalidation.invalidateProjectDossier(projectId);
     return presentMilestone(milestone);
+  },
+
+  async createMilestoneWithEvidence(
+    projectId: string,
+    userId: string,
+    role: UserRole,
+    input: {
+      title: string;
+      description: string;
+      activity_date: string;
+      tags?: string[];
+      evidence_type: 'photo' | 'video' | 'document';
+    },
+    files: Express.Multer.File[]
+  ) {
+    logger.info('milestone.create_with_evidence.service.start', {
+      projectId,
+      userId,
+      activityDate: input.activity_date,
+      fileCount: files.length,
+      evidenceType: input.evidence_type
+    });
+
+    const milestone = await createMilestoneRecord(projectId, userId, input);
+
+    try {
+      await evidenceService.uploadEvidence(
+        milestone.id,
+        userId,
+        {
+          evidence_type: input.evidence_type
+        },
+        files
+      );
+
+      logger.info('milestone.create_with_evidence.service.completed', {
+        milestoneId: milestone.id,
+        projectId,
+        userId,
+        fileCount: files.length
+      });
+      return this.getMilestone(milestone.id, userId, role);
+    } catch (error) {
+      logger.warn('milestone.create_with_evidence.service.rollback_start', {
+        milestoneId: milestone.id,
+        projectId,
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+
+      await deleteMilestoneQuietly(milestone.id, projectId);
+      await cacheInvalidation.invalidateProjectDossier(projectId);
+      throw error;
+    }
   },
 
   async listMilestones(projectId: string, userId: string, role: UserRole) {

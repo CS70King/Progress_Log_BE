@@ -573,8 +573,20 @@ export const projectService = {
     );
     await assertProjectDedupeAvailable(dedupeKey, projectId);
 
-    await projectMemberRepository.create(projectId, reviewer.id, ProjectMemberRole.REVIEWER);
-    await projectRepository.updateDedupeKey(projectId, dedupeKey);
+    await prisma.$transaction(async (tx) => {
+      await tx.projectMember.create({
+        data: {
+          projectId,
+          userId: reviewer.id,
+          role: ProjectMemberRole.REVIEWER
+        }
+      });
+
+      await tx.project.update({
+        where: { id: projectId },
+        data: { dedupeKey }
+      });
+    });
     await cacheInvalidation.invalidateProjectDossier(projectId);
 
     logger.info('project.invite_reviewer.service.created_membership', {

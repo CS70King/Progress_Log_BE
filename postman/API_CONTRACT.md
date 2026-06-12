@@ -362,6 +362,34 @@ Body:
 
 Response `data`: milestone (`creator` object included).
 
+Note:
+
+- This endpoint creates only the milestone record.
+- If your client needs milestone creation and first evidence upload to succeed or fail together, use `POST /projects/:projectId/milestones/with-evidence` instead.
+
+### POST `/projects/:projectId/milestones/with-evidence`
+
+Auth required. Worker-only (project owner).
+
+Content-Type: `multipart/form-data`
+
+Fields:
+
+- `title`
+- `description`
+- `activity_date`
+- `evidence_type`
+- `files`: one or more files
+- `tags` optional; may be sent as repeated fields or a JSON array string
+
+Behavior:
+
+- Creates the milestone first
+- Uploads the first evidence batch
+- If any evidence step fails, the new milestone is deleted
+
+Response `data`: same shape as `GET /milestones/:milestoneId`
+
 ### GET `/projects/:projectId/milestones`
 
 Auth required (owner or member).
@@ -556,6 +584,7 @@ Notes:
 - `thumbnail_width`/`thumbnail_height` are always 300x300 for generated thumbnails.
 - For PDFs, the thumbnail comes from a real first-page render.
 - For `doc`, `docx`, `xls`, `xlsx`, `txt`, and `csv`, the backend attempts a real first-page render through LibreOffice first, with a content-based preview fallback if conversion is unavailable or fails.
+- The whole upload batch is atomic. If any file in the request fails, all earlier files created by that same request are rolled back from both storage and the database.
 
 ### DELETE `/evidence/:evidenceId`
 

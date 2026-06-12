@@ -17,6 +17,25 @@ export const milestoneController = {
     return sendSuccess(res, 'Milestone created successfully', result, 201);
   },
 
+  async createWithEvidence(req: Request, res: Response) {
+    const projectId = requiredParam(req.params.projectId, 'projectId');
+    const files = (req.files as Express.Multer.File[]) ?? [];
+    logger.info('milestone.create_with_evidence.controller.start', {
+      projectId,
+      userId: req.auth!.userId,
+      fileCount: files.length,
+      evidenceType: req.body.evidence_type
+    });
+    const result = await milestoneService.createMilestoneWithEvidence(
+      projectId,
+      req.auth!.userId,
+      req.auth!.role,
+      req.body,
+      files
+    );
+    return sendSuccess(res, 'Milestone with evidence created successfully', result, 201);
+  },
+
   async list(req: Request, res: Response) {
     const projectId = requiredParam(req.params.projectId, 'projectId');
     logger.info('milestone.list.controller.start', {

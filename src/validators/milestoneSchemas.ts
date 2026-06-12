@@ -2,6 +2,35 @@ import { z } from 'zod';
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+const multipartTagsSchema = z.preprocess((value) => {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+
+    if (trimmed.startsWith('[')) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        return value;
+      }
+    }
+
+    return [trimmed];
+  }
+
+  return value;
+}, z.array(z.string().trim().min(1).max(40)).max(20).optional());
+
 export const milestoneIdParamSchema = z.object({
   milestoneId: z.string().uuid()
 });
@@ -15,6 +44,18 @@ export const createMilestoneSchema = z.object({
     .max(4000, 'Milestone description must be at most 4000 characters'),
   activity_date: dateOnly,
   tags: z.array(z.string().trim().min(1).max(40)).max(20).optional()
+});
+
+export const createMilestoneWithEvidenceSchema = z.object({
+  title: z.string().trim().min(1, 'Milestone title is required').max(160, 'Milestone title must be at most 160 characters'),
+  description: z
+    .string()
+    .trim()
+    .min(1, 'Milestone description is required')
+    .max(4000, 'Milestone description must be at most 4000 characters'),
+  activity_date: dateOnly,
+  tags: multipartTagsSchema,
+  evidence_type: z.enum(['photo', 'video', 'document'])
 });
 
 export const updateMilestoneSchema = z

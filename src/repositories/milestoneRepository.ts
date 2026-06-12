@@ -71,6 +71,12 @@ export const milestoneRepository = {
     });
   },
 
+  delete(milestoneId: string) {
+    return prisma.milestone.delete({
+      where: { id: milestoneId }
+    });
+  },
+
   async getProjectId(milestoneId: string) {
     const milestone = await prisma.milestone.findUnique({
       where: { id: milestoneId },

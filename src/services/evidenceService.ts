@@ -73,6 +73,30 @@ const deleteEvidenceRecordQuietly = async (evidenceId: string) => {
   }
 };
 
+const rollbackCreatedEvidenceBatch = async (
+  artifacts: Array<{
+    evidenceId: string;
+    filePath: string;
+    thumbnailPath?: string;
+  }>
+) => {
+  for (const artifact of [...artifacts].reverse()) {
+    await deleteEvidenceRecordQuietly(artifact.evidenceId);
+
+    if (artifact.thumbnailPath) {
+      await deleteStoredEvidenceFileQuietly(artifact.thumbnailPath, {
+        evidenceId: artifact.evidenceId,
+        cleanupTarget: 'thumbnail'
+      });
+    }
+
+    await deleteStoredEvidenceFileQuietly(artifact.filePath, {
+      evidenceId: artifact.evidenceId,
+      cleanupTarget: 'original'
+    });
+  }
+};
+
 export const evidenceService = {
   async uploadEvidence(
     milestoneId: string,
@@ -120,6 +144,11 @@ export const evidenceService = {
 
     const items = [];
     let projectChanged = false;
+    const createdArtifacts: Array<{
+      evidenceId: string;
+      filePath: string;
+      thumbnailPath?: string;
+    }> = [];
 
     try {
       for (const file of files) {
@@ -311,6 +340,12 @@ export const evidenceService = {
           filePath
         });
 
+        createdArtifacts.push({
+          evidenceId: record.id,
+          filePath,
+          ...(thumbnailPath ? { thumbnailPath } : {})
+        });
+
         items.push(
           await presentEvidenceItemWithSignedUrls(record, {
             signErrorEvent: 'evidence.upload.service.sign_failed',
@@ -323,6 +358,18 @@ export const evidenceService = {
         );
         projectChanged = true;
       }
+    } catch (error) {
+      if (createdArtifacts.length > 0) {
+        logger.warn('evidence.upload.service.batch_rollback_start', {
+          milestoneId,
+          projectId: milestone.projectId,
+          successfulItemCountBeforeFailure: createdArtifacts.length,
+          error: formatUnknownError(error)
+        });
+        await rollbackCreatedEvidenceBatch(createdArtifacts);
+      }
+
+      throw error;
     } finally {
       if (projectChanged) {
         await cacheInvalidation.invalidateProjectDossier(milestone.projectId);
