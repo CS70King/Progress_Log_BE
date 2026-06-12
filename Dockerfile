@@ -27,6 +27,16 @@ FROM base AS runtime
 
 ENV NODE_ENV=production
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    libreoffice-core \
+    libreoffice-writer \
+    libreoffice-calc \
+    fonts-dejavu-core \
+    fonts-liberation \
+    fonts-noto-core \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
 COPY --from=deps /app/node_modules ./node_modules

@@ -3,6 +3,8 @@ import { PDFParse } from 'pdf-parse';
 import sharp from 'sharp';
 import * as XLSX from 'xlsx';
 import { ImageService, ThumbnailResult } from './imageService';
+import { logger } from '../utils/logger';
+import { OfficeRenderService } from './officeRenderService';
 const WordExtractor = require('word-extractor');
 
 type DocumentPreviewKind = 'pdf' | 'document' | 'spreadsheet' | 'text';
@@ -202,55 +204,91 @@ export class DocumentPreviewService {
         return ImageService.generateThumbnail(previewBuffer);
       }
       case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': {
-        const lines = buildTextLines(await extractDocxText(documentBuffer), 14, 34);
-        return renderThumbnail(
-          renderPreviewSvg({
-            filename: options.originalFilename,
-            label: 'DOCX',
-            kind: 'document',
-            lines
-          })
-        );
+        try {
+          const officePreviewPdf = await OfficeRenderService.renderFirstPageSource(documentBuffer, options);
+          const previewBuffer = await renderPdfPreview(officePreviewPdf);
+          return ImageService.generateThumbnail(previewBuffer);
+        } catch (error) {
+          logger.warn('document.preview.office_render_failed', {
+            contentType: options.contentType,
+            originalFilename: options.originalFilename,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+
+          const lines = buildTextLines(await extractDocxText(documentBuffer), 14, 34);
+          return renderThumbnail(
+            renderPreviewSvg({
+              filename: options.originalFilename,
+              label: 'DOCX',
+              kind: 'document',
+              lines
+            })
+          );
+        }
       }
       case 'application/msword': {
-        const lines = buildTextLines(await extractDocText(documentBuffer), 14, 34);
-        return renderThumbnail(
-          renderPreviewSvg({
-            filename: options.originalFilename,
-            label: 'DOC',
-            kind: 'document',
-            lines
-          })
-        );
+        try {
+          const officePreviewPdf = await OfficeRenderService.renderFirstPageSource(documentBuffer, options);
+          const previewBuffer = await renderPdfPreview(officePreviewPdf);
+          return ImageService.generateThumbnail(previewBuffer);
+        } catch (error) {
+          logger.warn('document.preview.office_render_failed', {
+            contentType: options.contentType,
+            originalFilename: options.originalFilename,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+
+          const lines = buildTextLines(await extractDocText(documentBuffer), 14, 34);
+          return renderThumbnail(
+            renderPreviewSvg({
+              filename: options.originalFilename,
+              label: 'DOC',
+              kind: 'document',
+              lines
+            })
+          );
+        }
       }
       case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
       case 'application/vnd.ms-excel': {
-        let lines: string[];
         try {
-          lines = extractSpreadsheetLines(documentBuffer);
+          const officePreviewPdf = await OfficeRenderService.renderFirstPageSource(documentBuffer, options);
+          const previewBuffer = await renderPdfPreview(officePreviewPdf);
+          return ImageService.generateThumbnail(previewBuffer);
         } catch {
-          lines = buildTextLines(extractPlainText(documentBuffer), 14, 34);
+          let lines: string[];
+          try {
+            lines = extractSpreadsheetLines(documentBuffer);
+          } catch {
+            lines = buildTextLines(extractPlainText(documentBuffer), 14, 34);
+          }
+          return renderThumbnail(
+            renderPreviewSvg({
+              filename: options.originalFilename,
+              label: options.contentType === 'application/vnd.ms-excel' ? 'XLS' : 'XLSX',
+              kind: 'spreadsheet',
+              lines
+            })
+          );
         }
-        return renderThumbnail(
-          renderPreviewSvg({
-            filename: options.originalFilename,
-            label: options.contentType === 'application/vnd.ms-excel' ? 'XLS' : 'XLSX',
-            kind: 'spreadsheet',
-            lines
-          })
-        );
       }
       case 'text/plain':
       case 'text/csv': {
-        const lines = buildTextLines(extractPlainText(documentBuffer), 14, 34);
-        return renderThumbnail(
-          renderPreviewSvg({
-            filename: options.originalFilename,
-            label: options.contentType === 'text/csv' ? 'CSV' : 'TXT',
-            kind: 'text',
-            lines
-          })
-        );
+        try {
+          const officePreviewPdf = await OfficeRenderService.renderFirstPageSource(documentBuffer, options);
+          const previewBuffer = await renderPdfPreview(officePreviewPdf);
+          return ImageService.generateThumbnail(previewBuffer);
+        } catch {
+          const lines = buildTextLines(extractPlainText(documentBuffer), 14, 34);
+          return renderThumbnail(
+            renderPreviewSvg({
+              filename: options.originalFilename,
+              label: options.contentType === 'text/csv' ? 'CSV' : 'TXT',
+              kind: 'text',
+              lines
+            })
+          );
+        }
       }
       default:
         throw new Error(`Unsupported document preview MIME type: ${options.contentType}`);

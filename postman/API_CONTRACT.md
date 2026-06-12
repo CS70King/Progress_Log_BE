@@ -554,7 +554,8 @@ Notes:
 - `thumbnail_signed_url` is generated on demand and expires; may be `null` if thumbnail is missing.
 - `width`/`height` are the original media dimensions when metadata extraction succeeds.
 - `thumbnail_width`/`thumbnail_height` are always 300x300 for generated thumbnails.
-- For documents, the thumbnail is a content preview of page/content 1 rather than a downloadable second file type in the original format.
+- For PDFs, the thumbnail comes from a real first-page render.
+- For `doc`, `docx`, `xls`, `xlsx`, `txt`, and `csv`, the backend attempts a real first-page render through LibreOffice first, with a content-based preview fallback if conversion is unavailable or fails.
 
 ### DELETE `/evidence/:evidenceId`
 

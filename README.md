@@ -171,6 +171,12 @@ Thumbnail generation coverage:
 - videos: generated from a captured frame
 - documents: generated for `pdf`, `doc`, `docx`, `xls`, `xlsx`, `txt`, and `csv`
 
+Document preview behavior:
+
+- PDFs use a real first-page render
+- `doc`, `docx`, `xls`, `xlsx`, `txt`, and `csv` attempt a real first-page render through LibreOffice first
+- if LibreOffice is unavailable or conversion fails, the backend falls back to a content-based preview image for those non-PDF document formats
+
 The dossier endpoints keep `file_url` and `thumbnail_url` naming in their report payloads.
 
 Recommended bucket setup:
