@@ -9,12 +9,27 @@ const toFieldErrors = (error: ZodError) => {
   }));
 };
 
+const buildValidationMessage = (fieldErrors: ReturnType<typeof toFieldErrors>) => {
+  if (fieldErrors.length === 0) {
+    return 'Validation error';
+  }
+
+  if (fieldErrors.length === 1) {
+    return fieldErrors[0]!.message;
+  }
+
+  return fieldErrors
+    .map((fieldError) => (fieldError.field ? `${fieldError.field}: ${fieldError.message}` : fieldError.message))
+    .join('; ');
+};
+
 const validateFactory = <T>(schema: ZodSchema<T>, picker: (req: Parameters<RequestHandler>[0]) => unknown) => {
   return ((req, _res, next) => {
     const result = schema.safeParse(picker(req));
 
     if (!result.success) {
-      return next(new AppError(400, 'Validation error', 'VALIDATION_ERROR', toFieldErrors(result.error)));
+      const fieldErrors = toFieldErrors(result.error);
+      return next(new AppError(400, buildValidationMessage(fieldErrors), 'VALIDATION_ERROR', fieldErrors));
     }
 
     next();

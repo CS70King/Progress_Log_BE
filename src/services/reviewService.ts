@@ -6,6 +6,8 @@ import { toReviewDecision } from '../utils/enums';
 import { logger } from '../utils/logger';
 import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
+import { notificationService } from './notificationService';
+import { buildEvidenceSummary } from '../utils/milestoneSummaries';
 
 const ensureProjectActive = (projectState: ProjectState) => {
   if (projectState !== ProjectState.ACTIVE) {
@@ -55,7 +57,8 @@ export const reviewService = {
           status: nextStatus
         },
         include: {
-          creator: true
+          creator: true,
+          evidenceItems: true
         }
       });
 
@@ -95,8 +98,20 @@ export const reviewService = {
       reviewId: result.review.id
     });
     await cacheInvalidation.invalidateProjectDossier(milestone.projectId);
+    notificationService.notifyWorkerMilestoneReviewed({
+      projectId: milestone.projectId,
+      projectTitle: milestone.project.title,
+      milestoneId,
+      milestoneTitle: result.milestone.title,
+      worker: result.milestone.creator,
+      reviewerName: result.review.reviewer.name,
+      decision: input.decision
+    });
     return {
-      milestone: presentMilestone(result.milestone),
+      milestone: {
+        ...presentMilestone(result.milestone),
+        evidence_summary: buildEvidenceSummary(result.milestone.evidenceItems)
+      },
       review: presentMilestoneReview(result.review)
     };
   }

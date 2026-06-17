@@ -12,46 +12,26 @@ import { logger, maskPhone } from '../utils/logger';
 import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
 import { authService } from './authService';
+import { notificationService } from './notificationService';
 import { presentEvidenceItemWithSignedUrls } from '../utils/evidenceResponse';
+import { buildEvidenceSummary, buildMilestonesInfoFromRecords } from '../utils/milestoneSummaries';
 
 const getMilestoneInfo = async (projectId: string, role: UserRole) => {
-  const milestones = await prisma.milestone.groupBy({
-    by: ['status'],
+  const milestones = await prisma.milestone.findMany({
     where: { projectId },
-    _count: true
+    select: {
+      status: true,
+      submittedAt: true,
+      updatedAt: true,
+      evidenceItems: {
+        select: {
+          evidenceType: true
+        }
+      }
+    }
   });
 
-  const draft = milestones.find((m) => m.status === MilestoneStatus.DRAFT)?._count || 0;
-  const submitted = milestones.find((m) => m.status === MilestoneStatus.SUBMITTED)?._count || 0;
-  const approved = milestones.find((m) => m.status === MilestoneStatus.APPROVED)?._count || 0;
-  const needsRevision = milestones.find((m) => m.status === MilestoneStatus.NEEDS_REVISION)?._count || 0;
-  const disapprovedRaw = milestones.find((m) => m.status === MilestoneStatus.DISAPPROVED)?._count || 0;
-
-  const total =
-    role === UserRole.REVIEWER
-      ? // reviewers don't care about drafts in summaries
-        submitted + approved + needsRevision + disapprovedRaw
-      : draft + submitted + approved + needsRevision + disapprovedRaw;
-
-  const breakdown =
-    role === UserRole.REVIEWER
-      ? {
-          pending_review: submitted,
-          approved,
-          disapproved: needsRevision + disapprovedRaw
-        }
-      : {
-          draft,
-          submitted,
-          approved,
-          needs_revision: needsRevision,
-          disapproved: disapprovedRaw
-        };
-
-  return {
-    total,
-    breakdown
-  };
+  return buildMilestonesInfoFromRecords(milestones, role);
 };
 
 const formatProject = async (project: Awaited<ReturnType<typeof projectRepository.findById>>, role: UserRole) => {
@@ -111,6 +91,7 @@ const formatProjectDetails = async (project: Awaited<ReturnType<typeof projectRe
         submitted_at: milestone.submittedAt?.toISOString() ?? null,
         created_at: milestone.createdAt.toISOString(),
         updated_at: milestone.updatedAt.toISOString(),
+        evidence_summary: buildEvidenceSummary(milestone.evidenceItems),
         creator: milestone.creator
           ? {
               id: milestone.creator.id,
@@ -142,6 +123,7 @@ const formatProjectDetails = async (project: Awaited<ReturnType<typeof projectRe
   );
 
   const snapshots = await snapshotRepository.listByProject(project.id);
+  const milestonesInfo = await getMilestoneInfo(project.id, UserRole.WORKER);
 
   return {
     id: base.id,
@@ -153,6 +135,7 @@ const formatProjectDetails = async (project: Awaited<ReturnType<typeof projectRe
     updated_at: base.updated_at,
     reviewer_count: reviewerCount,
     reviewers: reviewers,
+    milestonesInfo,
     milestones: milestonesWithEvidenceUrls,
     snapshots: snapshots.map((snapshot) => presentSnapshot(snapshot))
   };
@@ -200,6 +183,7 @@ const formatProjectReviewerDetails = async (project: Awaited<ReturnType<typeof p
         submitted_at: milestone.submittedAt?.toISOString() ?? null,
         created_at: milestone.createdAt.toISOString(),
         updated_at: milestone.updatedAt.toISOString(),
+        evidence_summary: buildEvidenceSummary(milestone.evidenceItems),
         review: milestone.review
           ? {
               decision: milestone.review.decision.toLowerCase(),
@@ -393,6 +377,19 @@ export const projectService = {
       ownerId: userId,
       reviewerIds
     });
+
+    if (createdProject) {
+      const reviewers = createdProject.members
+        .filter((member) => member.role === ProjectMemberRole.REVIEWER)
+        .map((member) => member.user);
+
+      notificationService.notifyReviewersProjectCreated({
+        projectId: createdProject.id,
+        projectTitle: createdProject.title,
+        actorName: owner.name,
+        reviewers
+      });
+    }
 
     return formatProject(createdProject, role);
   },
@@ -594,6 +591,14 @@ export const projectService = {
       reviewerId: reviewer.id
     });
     const project = await projectRepository.findById(projectId);
+    if (project && owner) {
+      notificationService.notifyReviewerInvited({
+        projectId,
+        projectTitle: project.title,
+        actorName: owner.name,
+        reviewer
+      });
+    }
     return formatProject(project, UserRole.WORKER);
   }
 };

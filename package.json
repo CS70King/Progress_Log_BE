@@ -37,8 +37,11 @@
     "storage:test": "cross-env ENV_FILE=.env.development tsx scripts/storageTest.ts",
     "storage:test:staging": "cross-env ENV_FILE=.env.staging tsx scripts/storageTest.ts",
     "storage:test:production": "cross-env ENV_FILE=.env.production tsx scripts/storageTest.ts",
+    "notification:test": "cross-env ENV_FILE=.env.development tsx scripts/notificationTest.ts",
+    "notification:test:staging": "cross-env ENV_FILE=.env.staging tsx scripts/notificationTest.ts",
+    "notification:test:production": "cross-env ENV_FILE=.env.production tsx scripts/notificationTest.ts",
     "jwt:generate": "tsx scripts/generateJwtSecret.ts",
-    "test": "cross-env ENV_FILE=.env.development NODE_ENV=test STORAGE_DRIVER=mock tsx --test tests/**/*.test.ts"
+    "test": "cross-env ENV_FILE=.env.development NODE_ENV=test STORAGE_DRIVER=mock NOTIFICATION_DRIVER=mock tsx --test tests/**/*.test.ts"
   },
   "keywords": [
     "progress-log",
@@ -52,6 +55,7 @@
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@supabase/supabase-js": "^2.49.8",
+    "@surgeapi/node": "^0.45.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",

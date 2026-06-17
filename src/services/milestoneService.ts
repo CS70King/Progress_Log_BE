@@ -8,7 +8,9 @@ import { cacheInvalidation } from '../helpers/cache/cacheInvalidation';
 import { accessService } from './accessService';
 import { UserRole } from '@prisma/client';
 import { presentEvidenceItemWithSignedUrls } from '../utils/evidenceResponse';
+import { buildEvidenceSummary } from '../utils/milestoneSummaries';
 import { evidenceService } from './evidenceService';
+import { notificationService } from './notificationService';
 
 const editableMilestoneStatuses: MilestoneStatus[] = [MilestoneStatus.DRAFT, MilestoneStatus.NEEDS_REVISION];
 
@@ -96,7 +98,10 @@ export const milestoneService = {
       userId
     });
     await cacheInvalidation.invalidateProjectDossier(projectId);
-    return presentMilestone(milestone);
+    return {
+      ...presentMilestone(milestone),
+      evidence_summary: buildEvidenceSummary()
+    };
   },
 
   async createMilestoneWithEvidence(
@@ -172,6 +177,7 @@ export const milestoneService = {
       return {
         ...presented,
         status,
+        evidence_summary: buildEvidenceSummary(milestone.evidenceItems),
         review: milestone.review ? presentMilestoneReview(milestone.review) : null,
         evidence: await Promise.all(
           milestone.evidenceItems.map((item) =>
@@ -215,7 +221,8 @@ export const milestoneService = {
     return {
       milestone: {
         ...presented,
-        status
+        status,
+        evidence_summary: buildEvidenceSummary(milestone.evidenceItems)
       },
       evidence_items: evidenceItems,
       review: milestone.review ? presentMilestoneReview(milestone.review) : null
@@ -261,7 +268,10 @@ export const milestoneService = {
       status: updatedMilestone.status
     });
     await cacheInvalidation.invalidateProjectDossier(milestone.projectId);
-    return presentMilestone(updatedMilestone);
+    return {
+      ...presentMilestone(updatedMilestone),
+      evidence_summary: buildEvidenceSummary(updatedMilestone.evidenceItems)
+    };
   },
 
   async submitMilestone(milestoneId: string, userId: string) {
@@ -284,6 +294,16 @@ export const milestoneService = {
       nextStatus: updatedMilestone.status
     });
     await cacheInvalidation.invalidateProjectDossier(milestone.projectId);
-    return presentMilestone(updatedMilestone);
+    notificationService.notifyReviewersMilestoneSubmitted({
+      projectId: milestone.projectId,
+      projectTitle: milestone.project.title,
+      milestoneId,
+      milestoneTitle: updatedMilestone.title,
+      workerName: milestone.creator.name
+    });
+    return {
+      ...presentMilestone(updatedMilestone),
+      evidence_summary: buildEvidenceSummary(updatedMilestone.evidenceItems)
+    };
   }
 };

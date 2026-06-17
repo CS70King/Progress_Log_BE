@@ -157,6 +157,42 @@ test('supports the Progress Log MVP flow', async () => {
 
   assert.equal(submitResponse.status, 200);
   assert.equal(submitResponse.body.data.status, 'submitted');
+  assert.deepEqual(submitResponse.body.data.evidence_summary, {
+    photos: 2,
+    videos: 0,
+    documents: 0,
+    total: 2
+  });
+
+  const projectListResponse = await request(app)
+    .get('/projects')
+    .set('Authorization', `Bearer ${workerToken}`);
+
+  assert.equal(projectListResponse.status, 200);
+  const listedProject = projectListResponse.body.data.active[0];
+  assert.equal(listedProject.milestonesInfo.total, 1);
+  assert.equal(listedProject.milestonesInfo.evidence.photos, 2);
+  assert.ok(listedProject.milestonesInfo.last_activity_at);
+
+  const projectSummaryResponse = await request(app)
+    .get(`/projects/${projectId}`)
+    .set('Authorization', `Bearer ${workerToken}`);
+
+  assert.equal(projectSummaryResponse.status, 200);
+  assert.equal(projectSummaryResponse.body.data.milestonesInfo.evidence.photos, 2);
+  assert.deepEqual(projectSummaryResponse.body.data.milestones[0].evidence_summary, {
+    photos: 2,
+    videos: 0,
+    documents: 0,
+    total: 2
+  });
+
+  const milestoneListResponse = await request(app)
+    .get(`/projects/${projectId}/milestones`)
+    .set('Authorization', `Bearer ${workerToken}`);
+
+  assert.equal(milestoneListResponse.status, 200);
+  assert.equal(milestoneListResponse.body.data[0].evidence_summary.total, 2);
 
   const reviewResponse = await request(app)
     .post(`/milestones/${milestoneId}/review`)

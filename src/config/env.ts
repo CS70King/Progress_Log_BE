@@ -95,7 +95,12 @@ const baseEnvSchema = z.object({
   SEED_MIN_MILESTONES: z.coerce.number().int().positive().optional(),
   SEED_MAX_MILESTONES: z.coerce.number().int().positive().optional(),
   SEED_MIN_IMAGES_PER_MILESTONE: z.coerce.number().int().positive().optional(),
-  SEED_MAX_IMAGES_PER_MILESTONE: z.coerce.number().int().positive().optional()
+  SEED_MAX_IMAGES_PER_MILESTONE: z.coerce.number().int().positive().optional(),
+  NOTIFICATION_DRIVER: z.enum(['off', 'surge', 'routing', 'mock']).default('off'),
+  SURGE_API_KEY: z.string().optional(),
+  SURGE_ACCOUNT_ID: z.string().optional(),
+  SURGE_FROM_PHONE_NUMBER: z.string().optional(),
+  NOTIFICATION_TIMEOUT_MS: z.coerce.number().int().positive().default(8000)
 });
 
 const envSchema = baseEnvSchema.superRefine((value, ctx) => {
@@ -256,6 +261,24 @@ const envSchema = baseEnvSchema.superRefine((value, ctx) => {
         code: z.ZodIssueCode.custom,
         path: ['UPLOAD_SCAN_URL'],
         message: 'UPLOAD_SCAN_URL must be a valid URL'
+      });
+    }
+  }
+
+  if (value.NOTIFICATION_DRIVER === 'surge' || value.NOTIFICATION_DRIVER === 'routing') {
+    if (!value.SURGE_API_KEY?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SURGE_API_KEY'],
+        message: 'SURGE_API_KEY is required when NOTIFICATION_DRIVER=surge or routing'
+      });
+    }
+
+    if (!value.SURGE_ACCOUNT_ID?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SURGE_ACCOUNT_ID'],
+        message: 'SURGE_ACCOUNT_ID is required when NOTIFICATION_DRIVER=surge or routing'
       });
     }
   }

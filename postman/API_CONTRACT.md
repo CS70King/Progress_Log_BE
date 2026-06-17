@@ -220,7 +220,9 @@ Returns projects grouped by project `state`:
 Each project item includes (no owner/reviewers objects):
 
 - `id`, `title`, `description`, `project_type`, `state`, `created_at`, `updated_at`
-- `milestonesInfo`: `{ total, breakdown }`
+- `milestonesInfo`: `{ total, breakdown, last_activity_at, evidence }`
+  - `last_activity_at`: latest of each milestone's `submitted_at` and `updated_at` (ISO timestamp or `null`)
+  - `evidence`: `{ photos, videos, documents }`
 
 Role-based summary mapping (`milestonesInfo.breakdown`):
 
@@ -241,6 +243,7 @@ Response is role-based:
 Worker response (`data`):
 
 - `id`, `title`, `description`, `type`, `state`, `created_at`, `updated_at`, `reviewer_count`
+- `milestonesInfo`: `{ total, breakdown, last_activity_at, evidence }`
 - `reviewers`: array of reviewer objects with `id`, `name`, `phone`, `company`
 - `milestones`: array (includes drafts)
 - `snapshots`: array
@@ -256,6 +259,7 @@ Reviewer response (`data`):
 Milestone items include:
 
 - `id`, `title`, `description`, `activity_date`, `state`, timestamps
+- `evidence_summary`: `{ photos, videos, documents, total }`
 - `review` (decision + note + reviewer) when present
 - `evidence[]` with enhanced fields:
   - `id`, `project_id`, `milestone_id`, `uploader`, `evidence_type`, `file_path`

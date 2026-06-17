@@ -116,6 +116,7 @@ PAGINATION_MAX_LIMIT=100
 ```
 
 Use `STORAGE_DRIVER=mock` for tests or when you want to avoid real Supabase calls.
+Use `NOTIFICATION_DRIVER=off` by default, or `NOTIFICATION_DRIVER=mock` in tests.
 For staging and production, use `RATE_LIMIT_STORE=upstash` and `CACHE_STORE=upstash` with `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
 
 Security defaults:
@@ -128,6 +129,102 @@ Security defaults:
 - file scanning can be enabled with `UPLOAD_SCAN_MODE=http`
 - Redis-backed rate limiting is available through `RATE_LIMIT_STORE=redis`
 - Redis-backed caching with memory acceleration is available through `CACHE_STORE=redis`
+
+## SMS Notifications
+
+Workflow SMS alerts are optional and disabled by default. When enabled, messages route by recipient region.
+
+### Architecture
+
+```
+notificationService          business events + message copy
+       ↓
+routingNotificationProvider  picks provider per recipient
+       ├── USA (+1)  → Surge
+       ├── Ghana (+233) → Arkesel stub (logs only until implemented)
+       └── other     → skipped (warning log)
+```
+
+Code lives in `src/services/notificationService.ts` (what/when) and `src/notifications/` (how to send). SMS failures are logged but do not fail the API request.
+
+### Drivers
+
+| `NOTIFICATION_DRIVER` | Behavior |
+|----------------------|----------|
+| `off` | No SMS (default for local dev) |
+| `mock` | Log payload only (used by `npm test`) |
+| `surge` | Route and send via Surge / Arkesel stub |
+| `routing` | Same as `surge` |
+
+### Workflow events
+
+| Event | Trigger | Recipient |
+|-------|---------|-----------|
+| Reviewer added | `POST /projects` with `reviewer_phone(s)` | Each reviewer |
+| Reviewer invited | `POST /projects/:projectId/invite-reviewer` | Invited reviewer |
+| Milestone submitted | `POST /milestones/:milestoneId/submit` | All project reviewers |
+| Milestone reviewed | `POST /milestones/:milestoneId/review` | Milestone creator (worker) |
+
+Messages include the recipient's first name, actor name, project/milestone title, and an app link from the first origin in `CORS_ORIGIN`.
+
+### Environment strategy
+
+Use separate Surge credentials per environment. Do not reuse production keys in development or staging.
+
+| Environment | `NOTIFICATION_DRIVER` | SMS behavior | Surge setup |
+|-------------|----------------------|--------------|-------------|
+| **Development** | `off` (recommended default) | No SMS sent | Optional: keep demo Surge creds to manually test with `surge` |
+| **Tests / CI** | `mock` | Log only | None (`npm test` sets this automatically) |
+| **Staging** | `surge` | Real SMS to team/test numbers | Separate staging account, number, and campaign |
+| **Production** | `surge` | Real SMS to users | Separate prod account, number, and approved campaign |
+
+**Development notes:**
+
+- Leave `NOTIFICATION_DRIVER=off` for day-to-day work so seed data and flows never text real users.
+- Flip to `surge` only when actively testing SMS. Demo Surge numbers typically deliver only to your own phone.
+- Use `npm run notification:test -- +1YOUR_PHONE` for a direct send check.
+
+**Staging / production notes:**
+
+- Register a dedicated sending number and carrier campaign for each environment.
+- Demo/trial numbers are not suitable for staging or production.
+- Ghana recipients remain stubbed until Arkesel is implemented; US numbers use Surge today.
+
+### Environment variables
+
+```env
+NOTIFICATION_DRIVER=off
+SURGE_API_KEY=
+SURGE_ACCOUNT_ID=
+SURGE_FROM_PHONE_NUMBER=
+NOTIFICATION_TIMEOUT_MS=8000
+```
+
+When `NOTIFICATION_DRIVER` is `surge` or `routing`, `SURGE_API_KEY` and `SURGE_ACCOUNT_ID` are required.
+
+### Surge setup checklist
+
+1. Create an API key in the Surge dashboard.
+2. Copy your account id (`acct_...`) from the dashboard or `GET https://api.surge.app/accounts`.
+3. Purchase or assign a sending phone number on the account.
+4. Complete carrier campaign registration before sending to real US numbers.
+5. Add the values above to the active env file and set `NOTIFICATION_DRIVER=surge`.
+
+### Verification scripts
+
+```bash
+# Check Surge account, number, and credentials
+npx tsx scripts/surgeStatus.ts
+
+# Send a one-off test SMS (requires NOTIFICATION_DRIVER=surge)
+npm run notification:test -- +15555550100
+
+# Environment-specific wrappers
+npm run notification:test:staging -- +15555550100
+npm run notification:test:production -- +15555550100
+```
+
+Startup logs include `notificationDriver`, `surgeApiKeyConfigured`, and related fields under the `app.start` event.
 
 ## Setup
 
