@@ -96,11 +96,13 @@ const baseEnvSchema = z.object({
   SEED_MAX_MILESTONES: z.coerce.number().int().positive().optional(),
   SEED_MIN_IMAGES_PER_MILESTONE: z.coerce.number().int().positive().optional(),
   SEED_MAX_IMAGES_PER_MILESTONE: z.coerce.number().int().positive().optional(),
-  NOTIFICATION_DRIVER: z.enum(['off', 'surge', 'routing', 'mock']).default('off'),
+  NOTIFICATION_DRIVER: z.enum(['off', 'on', 'mock']).default('off'),
   SURGE_API_KEY: z.string().optional(),
   SURGE_ACCOUNT_ID: z.string().optional(),
   SURGE_FROM_PHONE_NUMBER: z.string().optional(),
-  NOTIFICATION_TIMEOUT_MS: z.coerce.number().int().positive().default(8000)
+  ARKESEL_API_KEY: z.string().optional(),
+  ARKESEL_SENDER_ID: z.string().optional(),
+  NOTIFICATION_TIMEOUT_MS: z.coerce.number().int().positive().default(30000)
 });
 
 const envSchema = baseEnvSchema.superRefine((value, ctx) => {
@@ -265,12 +267,12 @@ const envSchema = baseEnvSchema.superRefine((value, ctx) => {
     }
   }
 
-  if (value.NOTIFICATION_DRIVER === 'surge' || value.NOTIFICATION_DRIVER === 'routing') {
+  if (value.NOTIFICATION_DRIVER === 'on') {
     if (!value.SURGE_API_KEY?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['SURGE_API_KEY'],
-        message: 'SURGE_API_KEY is required when NOTIFICATION_DRIVER=surge or routing'
+        message: 'SURGE_API_KEY is required when NOTIFICATION_DRIVER=on'
       });
     }
 
@@ -278,7 +280,29 @@ const envSchema = baseEnvSchema.superRefine((value, ctx) => {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['SURGE_ACCOUNT_ID'],
-        message: 'SURGE_ACCOUNT_ID is required when NOTIFICATION_DRIVER=surge or routing'
+        message: 'SURGE_ACCOUNT_ID is required when NOTIFICATION_DRIVER=on'
+      });
+    }
+
+    if (!value.ARKESEL_API_KEY?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ARKESEL_API_KEY'],
+        message: 'ARKESEL_API_KEY is required when NOTIFICATION_DRIVER=on'
+      });
+    }
+
+    if (!value.ARKESEL_SENDER_ID?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ARKESEL_SENDER_ID'],
+        message: 'ARKESEL_SENDER_ID is required when NOTIFICATION_DRIVER=on'
+      });
+    } else if (value.ARKESEL_SENDER_ID.trim().length > 11) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ARKESEL_SENDER_ID'],
+        message: 'ARKESEL_SENDER_ID must be at most 11 characters'
       });
     }
   }

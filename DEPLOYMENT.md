@@ -268,15 +268,16 @@ Then verify one real authenticated flow:
 4. upload evidence
 5. fetch dossier
 
-If SMS is enabled (`NOTIFICATION_DRIVER=surge`), also verify notifications:
+If SMS is enabled (`NOTIFICATION_DRIVER=on`), also verify notifications:
 
 ```bash
 npm run notification:test:staging -- +1YOUR_PHONE
+npm run notification:test:staging -- +233XXXXXXXXX
 # or for production:
 npm run notification:test:production -- +1YOUR_PHONE
 ```
 
-Confirm staging and production each use their own Surge API key, account id, and sending number. Demo Surge numbers are for local testing only.
+Confirm staging and production each use their own Surge and Arkesel credentials.
 
 ## Rollback
 
@@ -294,6 +295,6 @@ If a deploy is bad:
   - Supabase DB
   - Supabase Storage bucket
   - Upstash Redis REST
-  - Surge SMS (when `NOTIFICATION_DRIVER=surge`): separate credentials and approved campaign per environment
+  - SMS (when `NOTIFICATION_DRIVER=on`): separate Surge + Arkesel credentials per environment
 - Migrations are not run automatically by the app on startup. Run them separately before or during release.
 - Do not add `PORT` manually in Cloud Run. Cloud Run injects it automatically.

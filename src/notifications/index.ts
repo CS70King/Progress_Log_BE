@@ -9,13 +9,12 @@ const offNotificationProvider: NotificationProvider = {
   }
 };
 
-const usesRegionalRouting = env.NOTIFICATION_DRIVER === 'surge' || env.NOTIFICATION_DRIVER === 'routing';
+const usesRegionalRouting = env.NOTIFICATION_DRIVER === 'on';
 
 const providers: Record<typeof env.NOTIFICATION_DRIVER, NotificationProvider> = {
   off: offNotificationProvider,
   mock: mockNotificationProvider,
-  surge: routingNotificationProvider,
-  routing: routingNotificationProvider
+  on: routingNotificationProvider
 };
 
 export const notificationDriver = env.NOTIFICATION_DRIVER;

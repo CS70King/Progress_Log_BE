@@ -41,6 +41,8 @@ export const getStartupEnvSummary = () => ({
   surgeAccountId: env.SURGE_ACCOUNT_ID ?? null,
   surgeFromPhone: env.SURGE_FROM_PHONE_NUMBER ? maskPhone(env.SURGE_FROM_PHONE_NUMBER) : null,
   surgeApiKeyConfigured: Boolean(env.SURGE_API_KEY?.trim()),
+  arkeselSenderId: env.ARKESEL_SENDER_ID ?? null,
+  arkeselApiKeyConfigured: Boolean(env.ARKESEL_API_KEY?.trim()),
   notificationTimeoutMs: env.NOTIFICATION_TIMEOUT_MS,
   rateLimitStore: env.RATE_LIMIT_STORE,
   cacheStore: env.CACHE_STORE,

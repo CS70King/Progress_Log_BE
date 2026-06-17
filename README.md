@@ -141,7 +141,7 @@ notificationService          business events + message copy
        ↓
 routingNotificationProvider  picks provider per recipient
        ├── USA (+1)  → Surge
-       ├── Ghana (+233) → Arkesel stub (logs only until implemented)
+       ├── Ghana (+233) → Arkesel
        └── other     → skipped (warning log)
 ```
 
@@ -153,8 +153,7 @@ Code lives in `src/services/notificationService.ts` (what/when) and `src/notific
 |----------------------|----------|
 | `off` | No SMS (default for local dev) |
 | `mock` | Log payload only (used by `npm test`) |
-| `surge` | Route and send via Surge / Arkesel stub |
-| `routing` | Same as `surge` |
+| `on` | Route and send via Surge (USA) / Arkesel (Ghana) |
 
 ### Workflow events
 
@@ -171,24 +170,24 @@ Messages include the recipient's first name, actor name, project/milestone title
 
 Use separate Surge credentials per environment. Do not reuse production keys in development or staging.
 
-| Environment | `NOTIFICATION_DRIVER` | SMS behavior | Surge setup |
-|-------------|----------------------|--------------|-------------|
-| **Development** | `off` (recommended default) | No SMS sent | Optional: keep demo Surge creds to manually test with `surge` |
+| Environment | `NOTIFICATION_DRIVER` | SMS behavior | Provider setup |
+|-------------|----------------------|--------------|----------------|
+| **Development** | `off` (recommended default) | No SMS sent | Optional: set `on` to manually test Surge or Arkesel |
 | **Tests / CI** | `mock` | Log only | None (`npm test` sets this automatically) |
-| **Staging** | `surge` | Real SMS to team/test numbers | Separate staging account, number, and campaign |
-| **Production** | `surge` | Real SMS to users | Separate prod account, number, and approved campaign |
+| **Staging** | `on` | Real SMS to team/test numbers | Separate Surge + Arkesel credentials |
+| **Production** | `on` | Real SMS to users | Separate Surge + Arkesel credentials |
 
 **Development notes:**
 
 - Leave `NOTIFICATION_DRIVER=off` for day-to-day work so seed data and flows never text real users.
-- Flip to `surge` only when actively testing SMS. Demo Surge numbers typically deliver only to your own phone.
-- Use `npm run notification:test -- +1YOUR_PHONE` for a direct send check.
+- Flip to `on` only when actively testing SMS.
+- Use `npm run notification:test -- +1YOUR_PHONE` or `+233XXXXXXXXX` for a direct send check.
 
 **Staging / production notes:**
 
 - Register a dedicated sending number and carrier campaign for each environment.
 - Demo/trial numbers are not suitable for staging or production.
-- Ghana recipients remain stubbed until Arkesel is implemented; US numbers use Surge today.
+- Ghana recipients use Arkesel; US numbers use Surge. Both credential sets are required when `NOTIFICATION_DRIVER=on`.
 
 ### Environment variables
 
@@ -197,18 +196,27 @@ NOTIFICATION_DRIVER=off
 SURGE_API_KEY=
 SURGE_ACCOUNT_ID=
 SURGE_FROM_PHONE_NUMBER=
-NOTIFICATION_TIMEOUT_MS=8000
+ARKESEL_API_KEY=
+ARKESEL_SENDER_ID=
+NOTIFICATION_TIMEOUT_MS=30000
 ```
 
-When `NOTIFICATION_DRIVER` is `surge` or `routing`, `SURGE_API_KEY` and `SURGE_ACCOUNT_ID` are required.
+When `NOTIFICATION_DRIVER=on`, `SURGE_API_KEY`, `SURGE_ACCOUNT_ID`, `ARKESEL_API_KEY`, and `ARKESEL_SENDER_ID` are required.
 
-### Surge setup checklist
+### Surge setup checklist (USA)
 
 1. Create an API key in the Surge dashboard.
 2. Copy your account id (`acct_...`) from the dashboard or `GET https://api.surge.app/accounts`.
 3. Purchase or assign a sending phone number on the account.
 4. Complete carrier campaign registration before sending to real US numbers.
-5. Add the values above to the active env file and set `NOTIFICATION_DRIVER=surge`.
+5. Add the values above to the active env file and set `NOTIFICATION_DRIVER=on`.
+
+### Arkesel setup checklist (Ghana)
+
+1. Create an Arkesel account and generate an SMS API key from the dashboard.
+2. Register a sender ID (max 11 characters, e.g. `PROGRESSLOG`).
+3. Add `ARKESEL_API_KEY` and `ARKESEL_SENDER_ID` to the active env file.
+4. Ghana numbers are routed automatically when `NOTIFICATION_DRIVER=on`.
 
 ### Verification scripts
 
@@ -216,15 +224,16 @@ When `NOTIFICATION_DRIVER` is `surge` or `routing`, `SURGE_API_KEY` and `SURGE_A
 # Check Surge account, number, and credentials
 npx tsx scripts/surgeStatus.ts
 
-# Send a one-off test SMS (requires NOTIFICATION_DRIVER=surge)
+# Send a one-off test SMS (requires NOTIFICATION_DRIVER=on)
 npm run notification:test -- +15555550100
+npm run notification:test -- +233XXXXXXXXX
 
 # Environment-specific wrappers
 npm run notification:test:staging -- +15555550100
 npm run notification:test:production -- +15555550100
 ```
 
-Startup logs include `notificationDriver`, `surgeApiKeyConfigured`, and related fields under the `app.start` event.
+Startup logs include `notificationDriver`, `surgeApiKeyConfigured`, `arkeselApiKeyConfigured`, and related fields under the `app.start` event.
 
 ## Setup
 
