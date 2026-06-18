@@ -103,8 +103,8 @@ UPSTASH_REDIS_REST_TOKEN=
 CACHE_SHARE_LOOKUP_TTL_SECONDS=60
 CACHE_DOSSIER_PAYLOAD_TTL_SECONDS=300
 SIGNED_URL_CACHE_TTL_MINUTES=45
-UPLOAD_MAX_FILES=20
-UPLOAD_MAX_FILE_SIZE_MB=25
+UPLOAD_MAX_FILES=50
+UPLOAD_MAX_FILE_SIZE_MB=50
 UPLOAD_SCAN_MODE=off
 UPLOAD_SCAN_URL=https://scanner.example.com/scan
 UPLOAD_SCAN_TIMEOUT_MS=8000
@@ -153,7 +153,7 @@ Code lives in `src/services/notificationService.ts` (what/when) and `src/notific
 |----------------------|----------|
 | `off` | No SMS (default for local dev) |
 | `mock` | Log payload only (used by `npm test`) |
-| `on` | Route and send via Surge (USA) / Arkesel (Ghana) |
+| `on` | Route and send via Surge (USA) / Arkesel (Ghana). In **development**, only `DEV_NOTIFICATION_USA_PHONE` and `DEV_NOTIFICATION_GHANA_PHONE` receive real SMS |
 
 ### Workflow events
 
@@ -172,7 +172,7 @@ Use separate Surge credentials per environment. Do not reuse production keys in 
 
 | Environment | `NOTIFICATION_DRIVER` | SMS behavior | Provider setup |
 |-------------|----------------------|--------------|----------------|
-| **Development** | `off` (recommended default) | No SMS sent | Optional: set `on` to manually test Surge or Arkesel |
+| **Development** | `off` (recommended default) | No SMS sent | Optional: set `on` + dev allowlist phones to live-test |
 | **Tests / CI** | `mock` | Log only | None (`npm test` sets this automatically) |
 | **Staging** | `on` | Real SMS to team/test numbers | Separate Surge + Arkesel credentials |
 | **Production** | `on` | Real SMS to users | Separate Surge + Arkesel credentials |
@@ -180,6 +180,8 @@ Use separate Surge credentials per environment. Do not reuse production keys in 
 **Development notes:**
 
 - Leave `NOTIFICATION_DRIVER=off` for day-to-day work so seed data and flows never text real users.
+- Use `NOTIFICATION_DRIVER=mock` to verify notification triggers for all recipients without sending SMS.
+- Use `NOTIFICATION_DRIVER=on` with `DEV_NOTIFICATION_USA_PHONE` and `DEV_NOTIFICATION_GHANA_PHONE` to live-test SMS to your two dev phones only.
 - Flip to `on` only when actively testing SMS.
 - Use `npm run notification:test -- +1YOUR_PHONE` or `+233XXXXXXXXX` for a direct send check.
 
@@ -199,9 +201,11 @@ SURGE_FROM_PHONE_NUMBER=
 ARKESEL_API_KEY=
 ARKESEL_SENDER_ID=
 NOTIFICATION_TIMEOUT_MS=30000
+DEV_NOTIFICATION_USA_PHONE=
+DEV_NOTIFICATION_GHANA_PHONE=
 ```
 
-When `NOTIFICATION_DRIVER=on`, `SURGE_API_KEY`, `SURGE_ACCOUNT_ID`, `ARKESEL_API_KEY`, and `ARKESEL_SENDER_ID` are required.
+When `NOTIFICATION_DRIVER=on`, `SURGE_API_KEY`, `SURGE_ACCOUNT_ID`, `ARKESEL_API_KEY`, and `ARKESEL_SENDER_ID` are required. In development, `DEV_NOTIFICATION_USA_PHONE` and `DEV_NOTIFICATION_GHANA_PHONE` are also required.
 
 ### Surge setup checklist (USA)
 
@@ -319,9 +323,9 @@ The canonical seed script is `scripts/seedDatabase.ts`.
 
 Behavior by environment:
 
-- `development`: seeds 10 projects if the seed users do not already exist
-- `staging`: seeds 5 projects if the seed users do not already exist
-- `production`: asks for confirmation, then seeds 3 projects if the seed users do not already exist
+- `development`: seeds 3 projects (active, abandoned, completed) if the seed users do not already exist
+- `staging`: seeds 3 projects (active, abandoned, completed) if the seed users do not already exist
+- `production`: asks for confirmation, then seeds 3 projects (active, abandoned, completed) if the seed users do not already exist
 
 Commands:
 

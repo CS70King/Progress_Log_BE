@@ -125,19 +125,19 @@ export const evidenceService = {
     ensureProjectActive(milestone.project.state);
     ensureEvidenceMutable(milestone.status);
 
-    const MAX_EVIDENCE_PER_MILESTONE = 20;
+    const maxEvidencePerMilestone = env.UPLOAD_MAX_FILES;
     const existingCount = await prisma.evidenceItem.count({ where: { milestoneId } });
-    if (existingCount + files.length > MAX_EVIDENCE_PER_MILESTONE) {
+    if (existingCount + files.length > maxEvidencePerMilestone) {
       logger.warn('evidence.upload.service.too_many_files', {
         milestoneId,
         userId,
         existingCount,
         attemptedUploadCount: files.length,
-        maxAllowed: MAX_EVIDENCE_PER_MILESTONE
+        maxAllowed: maxEvidencePerMilestone
       });
       throw new AppError(
         400,
-        `A milestone can have at most ${MAX_EVIDENCE_PER_MILESTONE} evidence files`,
+        `A milestone can have at most ${maxEvidencePerMilestone} evidence files`,
         'VALIDATION_ERROR'
       );
     }

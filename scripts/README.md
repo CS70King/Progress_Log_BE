@@ -9,9 +9,9 @@ This directory contains the database management scripts for Progress Log.
 Canonical environment-aware seeding script.
 
 Behavior by environment:
-- `development`: seeds 10 projects if the seed users do not already exist
-- `staging`: seeds 5 projects if the seed users do not already exist
-- `production`: asks for confirmation, then seeds 3 projects if the seed users do not already exist
+- `development`: seeds 3 projects (active, abandoned, completed) if the seed users do not already exist
+- `staging`: seeds 3 projects (active, abandoned, completed) if the seed users do not already exist
+- `production`: asks for confirmation, then seeds 3 projects (active, abandoned, completed) if the seed users do not already exist
 
 Usage:
 ```bash

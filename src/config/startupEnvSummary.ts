@@ -1,5 +1,6 @@
 import { env } from './env';
 import { notificationUsesRegionalRouting } from '../notifications';
+import { devNotificationAllowlistEnabled } from '../notifications/devNotificationAllowlist';
 import { maskPhone } from '../utils/logger';
 const readEnvFile = () => process.env.ENV_FILE || '.env';
 
@@ -44,6 +45,13 @@ export const getStartupEnvSummary = () => ({
   arkeselSenderId: env.ARKESEL_SENDER_ID ?? null,
   arkeselApiKeyConfigured: Boolean(env.ARKESEL_API_KEY?.trim()),
   notificationTimeoutMs: env.NOTIFICATION_TIMEOUT_MS,
+  devNotificationAllowlistEnabled,
+  devNotificationUsaPhone: devNotificationAllowlistEnabled
+    ? maskPhone(env.DEV_NOTIFICATION_USA_PHONE!)
+    : null,
+  devNotificationGhanaPhone: devNotificationAllowlistEnabled
+    ? maskPhone(env.DEV_NOTIFICATION_GHANA_PHONE!)
+    : null,
   rateLimitStore: env.RATE_LIMIT_STORE,
   cacheStore: env.CACHE_STORE,
   upstashConfigured: Boolean(env.UPSTASH_REDIS_REST_URL?.trim() && env.UPSTASH_REDIS_REST_TOKEN?.trim()),

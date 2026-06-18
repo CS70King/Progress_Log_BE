@@ -102,7 +102,9 @@ const baseEnvSchema = z.object({
   SURGE_FROM_PHONE_NUMBER: z.string().optional(),
   ARKESEL_API_KEY: z.string().optional(),
   ARKESEL_SENDER_ID: z.string().optional(),
-  NOTIFICATION_TIMEOUT_MS: z.coerce.number().int().positive().default(30000)
+  NOTIFICATION_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+  DEV_NOTIFICATION_USA_PHONE: z.string().optional(),
+  DEV_NOTIFICATION_GHANA_PHONE: z.string().optional()
 });
 
 const envSchema = baseEnvSchema.superRefine((value, ctx) => {
@@ -303,6 +305,24 @@ const envSchema = baseEnvSchema.superRefine((value, ctx) => {
         code: z.ZodIssueCode.custom,
         path: ['ARKESEL_SENDER_ID'],
         message: 'ARKESEL_SENDER_ID must be at most 11 characters'
+      });
+    }
+  }
+
+  if (value.NODE_ENV === 'development' && value.NOTIFICATION_DRIVER === 'on') {
+    if (!value.DEV_NOTIFICATION_USA_PHONE?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DEV_NOTIFICATION_USA_PHONE'],
+        message: 'DEV_NOTIFICATION_USA_PHONE is required when NOTIFICATION_DRIVER=on in development'
+      });
+    }
+
+    if (!value.DEV_NOTIFICATION_GHANA_PHONE?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DEV_NOTIFICATION_GHANA_PHONE'],
+        message: 'DEV_NOTIFICATION_GHANA_PHONE is required when NOTIFICATION_DRIVER=on in development'
       });
     }
   }

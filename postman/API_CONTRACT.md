@@ -543,8 +543,9 @@ Supported upload MIME types:
 
 Limits:
 
-- Max 20 files per request
-- Max 20 evidence items per milestone total (across all uploads)
+- Max 50 files per request
+- Max 50 MB per file
+- Max 50 evidence items per milestone total (same as `UPLOAD_MAX_FILES`)
 - Evidence can be added/removed only while milestone is `draft` or `needs_revision`
 
 Response `data` is grouped to avoid repetition:

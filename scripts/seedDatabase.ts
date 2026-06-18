@@ -23,8 +23,10 @@ import { hashPassword } from '../src/utils/password';
 
 const WORKER_SEED_PASSWORD = 'WorkerDemo123!';
 const REVIEWER_SEED_PASSWORD = 'ReviewerDemo123!';
-const WORKER_PHONE = '+10123456789';
-const REVIEWER_PHONE = '+10123456780';
+const WORKER_PHONE = '+233550380630';
+const REVIEWER_PHONE = '+19095410066';
+const WORKER_NAME = 'Kwame Mensah';
+const REVIEWER_NAME = 'Emily Carter';
 
 const projectTitles = [
   'Downtown Office Tower Renovation',
@@ -108,14 +110,14 @@ type SupportedSeedEnvironment = 'development' | 'staging' | 'production';
 
 const defaultSeedPlans: Record<SupportedSeedEnvironment, SeedPlan> = {
   development: {
-    projectCount: 10,
+    projectCount: 3,
     minMilestones: 5,
     maxMilestones: 15,
     minImagesPerMilestone: 3,
     maxImagesPerMilestone: 20
   },
   staging: {
-    projectCount: 5,
+    projectCount: 3,
     minMilestones: 5,
     maxMilestones: 12,
     minImagesPerMilestone: 3,
@@ -129,6 +131,12 @@ const defaultSeedPlans: Record<SupportedSeedEnvironment, SeedPlan> = {
     maxImagesPerMilestone: 8
   }
 };
+
+const seedProjectStates: ProjectState[] = [
+  ProjectState.ACTIVE,
+  ProjectState.ABANDONED,
+  ProjectState.COMPLETED
+];
 
 const assertSupportedSeedEnvironment = (): SupportedSeedEnvironment => {
   if (env.NODE_ENV === 'development' || env.NODE_ENV === 'staging' || env.NODE_ENV === 'production') {
@@ -449,10 +457,10 @@ const createWorker = async () => {
 
   return prisma.user.create({
     data: {
-      name: 'John Construction Manager',
+      name: WORKER_NAME,
       phone: WORKER_PHONE,
-      country: 'United States',
-      company: 'BuildRight Construction',
+      country: 'Ghana',
+      company: 'Mensah Builders',
       role: UserRole.WORKER,
       passwordHash
     }
@@ -464,10 +472,10 @@ const createReviewer = async () => {
 
   return prisma.user.create({
     data: {
-      name: 'Sarah Quality Inspector',
+      name: REVIEWER_NAME,
       phone: REVIEWER_PHONE,
       country: 'United States',
-      company: 'Quality Assurance Partners',
+      company: 'Carter Quality Partners',
       role: UserRole.REVIEWER,
       passwordHash
     }
@@ -482,7 +490,7 @@ const createProjectWithMilestones = async (
   state: SeedRunState
 ) => {
   const projectType = getRandomElement([ProjectType.GENERIC, ProjectType.CONSTRUCTION, ProjectType.SERVICE]);
-  const projectState = getRandomElement([ProjectState.ACTIVE, ProjectState.COMPLETED, ProjectState.ABANDONED]);
+  const projectState = seedProjectStates[projectIndex % seedProjectStates.length];
 
   const project = await prisma.project.create({
     data: {
@@ -699,7 +707,9 @@ async function main() {
 
     console.log(`Creating ${plan.projectCount} projects...`);
     for (let projectIndex = 0; projectIndex < plan.projectCount; projectIndex += 1) {
-      console.log(`  Creating project ${projectIndex + 1}/${plan.projectCount}: ${projectTitles[projectIndex % projectTitles.length]}`);
+      console.log(
+        `  Creating project ${projectIndex + 1}/${plan.projectCount}: ${projectTitles[projectIndex % projectTitles.length]} (${seedProjectStates[projectIndex % seedProjectStates.length].toLowerCase()})`
+      );
       await createProjectWithMilestones(worker.id, reviewer.id, projectIndex, plan, seedRunState);
     }
 
